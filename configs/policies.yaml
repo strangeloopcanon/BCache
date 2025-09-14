@@ -1,0 +1,16 @@
+# Policy defaults (tune per model/tenant)
+
+window_ms: 20
+min_io_bytes: 524288  # 512KB
+popularity:
+  alpha: 1.0
+  beta: 0.0
+thresholds:
+  pmin: 1.0
+  umin: 0.0
+write_through:
+  reuse_threshold: 10.0
+tenant:
+  default:
+    credit_per_window: 67108864  # 64MB
+

@@ -1,0 +1,17 @@
+window_ms: 20
+min_io_bytes: 524288
+max_ops_per_tier: 64
+popularity:
+  alpha: 1.0
+  beta: 0.0
+thresholds:
+  pmin: 1.0
+  umin: 0.0
+ab_flags:
+  enable_prefix_fanout: true
+  enable_tenant_credits: true
+  enable_admission: true
+  enable_eviction: true
+  enable_overlap: true
+  enforce_tier_caps: true
+tenant_credits_bytes: 33554432  # 32MB

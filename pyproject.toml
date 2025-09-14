@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "BCache"
+version = "0.1.0"
+description = "Bodo-powered hierarchical KV cache planner"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Proprietary/Unspecified"}
+authors = [
+  {name = "BodoCache Authors"},
+]
+dependencies = [
+  "pandas>=1.5",
+  "numpy>=1.21",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+blake3 = ["blake3>=0.3.3"]
+bodo = ["bodo"]
+
+[tool.setuptools.packages.find]
+include = ["bodocache*"]
+
+[project.scripts]
+bodocache-sim = "bodocache.sim.cli:main"
+bcache-sim = "bodocache.sim.cli:main"

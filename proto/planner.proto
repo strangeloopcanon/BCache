@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package bodocache;
+
+message CopyOp {
+  bytes page_key = 1;  // encoded PageKey
+  uint64 offset   = 2;
+  uint32 bytes    = 3;
+  uint32 gpu_id   = 4;
+  uint32 stream_id = 5;
+  int64 deadline_ms = 6;
+  enum Tier { STORAGE = 0; CPU = 1; GPU = 2; }
+  Tier src = 7;
+  Tier dst = 8;
+  string prefix_cluster = 9;  // fan-out cluster id
+  uint32 fanout = 10;         // number of sessions sharing this copy
+  uint32 overlap = 11;        // N/N+ copy depth hint
+  float priority = 12;        // scheduling priority (e.g., urgency)
+}
+
+message Plan {
+  repeated CopyOp ops = 1;
+  repeated bytes evict_keys = 2;
+}
+
+message NodeState {
+  string node = 1;
+  uint64 free_cpu_bytes = 2;
+  uint64 free_gpu_bytes = 3;
+  uint64 inflight_io = 4;
+}
+
+message PerfCounters {
+  string node = 1;
+  double prefetch_timeliness = 2;
+  double avg_io_bytes = 3;
+  double stall_ms = 4;
+}
+
+message Ack { bool ok = 1; }
+
+service Planner {
+  rpc GetPlan(NodeState) returns (Plan);
+  rpc Report(PerfCounters) returns (Ack);
+}
