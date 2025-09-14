@@ -45,5 +45,4 @@ configs/staged.yaml
 # Markdown: ignore stray docs by default, but keep key project docs
 *.md
 !README.md
-!RELEASE_NOTES.md
 !docs/context.md
