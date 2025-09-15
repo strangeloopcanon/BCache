@@ -20,6 +20,11 @@ def test_segmented_file_backend_rw(tmp_path):
     out = be.read_range(model_id, model_version, layer, 0, 1, page_bytes)
     assert len(out) == 2 * page_bytes
 
+    # Read into a preallocated buffer
+    buf = bytearray(2 * page_bytes)
+    n = be.read_range_into(model_id, model_version, layer, 0, 1, page_bytes, buf)
+    assert n == 2 * page_bytes
+
 
 def test_node_agent_exec(tmp_path):
     be = SegmentedFileBackend(str(tmp_path))
@@ -34,4 +39,3 @@ def test_node_agent_exec(tmp_path):
     stats = agent.execute(plan_df, model_id='m', model_version='v')
     assert stats['ops'] == 2
     assert stats['bytes'] == 4 * 4096  # two ranges of two pages each
-

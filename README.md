@@ -182,45 +182,64 @@ To run tests with Bodo JIT, unset `BODOCACHE_PURE_PY` and ensure sufficient memo
 │   ├── planner/      # The Bodo-compiled planner and policy logic.
 │   │   ├── scheduler.py  # Main planner entrypoint and Bodo-JIT core.
 │   │   └── pipeline.py   # Readable, pure-Python implementation of the planner stages.
-│   ├── agent/        # The Node Agent (Python and C++/CUDA stubs).
+│   ├── agent/        # The Node Agent (Python, with native CUDA/HIP/L0 backends).
 │   └── adapters/     # Pluggable storage backends.
 ├── configs/          # Configuration files for policies and runtime.
 ├── proto/            # gRPC service definitions for planner-agent communication.
 ├── scripts/          # Simulation and utility scripts.
 └── tests/            # Unit tests.
+
+### Integrations
+
+- Adapters for engines are provided under `bodocache/integrations/`:
+  - `vllm_adapter.py` and `sglang_adapter.py` expose a simple `prefetch()` API to drive BCache from vLLM/SGLang decode loops.
+  - The adapters work with the current simulator and are forward-compatible with native GPU copy engines (CUDA/HIP/Level Zero).
+  - See `docs/integrations.md` for build and usage details, including pinned-buffer staging and device pointer capsules.
+
+### Native Data Plane (CUDA/HIP)
+
+- Build the native copy engine module under `native/`:
+  - CUDA: `cmake -S native -B build-cuda -DUSE_CUDA=ON && cmake --build build-cuda -j`
+  - ROCm/HIP: `cmake -S native -B build-hip -DUSE_HIP=ON && cmake --build build-hip -j`
+  - Ensure `pybind11`, CUDA or ROCm toolchains are installed in your environment.
+  - Add the build directory to `PYTHONPATH` or copy the resulting `bodocache_agent_copy_engine` module into your Python path.
+
+- Quick microbench:
+  - `python scripts/microbench_copy.py` (optionally uses PyTorch CUDA if available to allocate a GPU destination buffer).
 ```
 
 ## Current Limitations
 
 This project is a v0 prototype and has the following limitations:
 
-1.  **CPU-Only Data Plane:** The actual data I/O is performed in pure Python, which is not performant. The full performance benefits of the Bodo-powered planner will only be realized when the C++/CUDA data plane for direct GPU memory transfers is implemented.
-2.  **Standalone Simulator:** This tool is not integrated with a real inference engine like vLLM or SGLang. It runs a synthetic workload to simulate the behavior of a cache planner.
-3.  **Batch Workload:** The current simulation processes a pre-generated batch of requests. It does not yet simulate a real-time environment where requests arrive continuously.
+1.  **Native Data Plane Footguns:** Native copy engines (CUDA/HIP/L0) are provided but require building and correct driver/toolchain setups. Advanced features (e.g., GPUDirect) are not enabled by default and vary by vendor.
+2.  **Engine Glue Required:** vLLM/SGLang integrations are provided as adapters and hooks; you still need to wire `build_requests` and `dest_resolver` to your engine’s KV manager.
+3.  **Synthetic Storage:** Segment backends are file-based. The optional `io_uring` reader improves throughput but production deployments should map to your actual storage stack.
 
 ## Roadmap to Production
 
 To turn this prototype into a production-ready system, the following components need to be built. The current implementation uses a **simulated data plane** in Python; the steps below describe how to build the real, high-performance data plane.
 
-### Step 1: Build the C++/CUDA Data Plane ("The Brawn")
+### Step 1: Build the Native Data Plane ("The Brawn")
 
 This component is responsible for the fast, asynchronous movement of data from CPU memory to GPU memory.
 
--   **Setup a C++/Python Bridge:** Use a tool like `pybind11` to create a C++ `CopyEngine` class that can be called from the Python `NodeAgent`.
--   **Implement a Pinned Memory Pool:** In C++, use `cudaMallocHost()` to allocate a pool of pinned (page-locked) host memory. This is a special memory region that the GPU can access at high speed.
--   **Write Asynchronous Copy Logic:** Use the CUDA API (`cudaMemcpyAsync` and CUDA streams) to create a non-blocking function that copies data from the pinned memory pool to the GPU.
+-   C++/Python bridge implemented via `pybind11` under `native/`, producing `bodocache_agent_copy_engine`.
+-   Pinned memory: `acquire_host_buffer(nbytes)` returns a pinned, writable memoryview (CUDA/HIP/L0 backends).
+-   Async copies: `submit(ops, callback)` enqueues multi-stream async H2D copies and invokes Python callbacks upon completion.
+-   Multi-vendor: build flags for NVIDIA (CUDA), AMD (HIP), and Intel (Level Zero).
 
-### Step 2: Integrate the Data Plane with the Node Agent
+### Step 2: Node Agent and Storage
 
--   Modify the `bodocache/agent/node_agent.py` to import and call the new C++ `CopyEngine`.
--   The `NodeAgent`'s role becomes orchestrating the flow: (1) use the file backend to read data into the C++ engine's pinned memory pool, and (2) call the C++ engine to schedule the asynchronous transfer to the GPU.
+-   `NodeAgent` detects a native engine (if installed), allocates pinned buffers, reads coalesced page ranges directly into them, and enqueues device copies.
+-   Optional `io_uring` reader (`-DUSE_URING=ON`) improves file→pinned throughput (`bodocache.adapters.uring_backend`).
 
-### Step 3: Integrate with a Real Inference Engine
+### Step 3: Integrate with Real Inference Engines
 
 To be useful, BCache must be connected to an actual LLM inference server.
 
--   **Create Engine Hooks:** Develop an adapter to intercept KV cache requests from an engine like vLLM or SGLang. This typically involves modifying the engine's source code.
--   **Implement Callbacks:** Create a mechanism to notify the inference engine when the requested KV cache pages are ready in GPU memory, so it can resume the generation process.
+-   Use adapters in `bodocache/integrations/` with `VLLMHook`/`SGLangHook` to drive prefetch without invasive engine changes.
+-   See `docs/vllm_integration.md` and `docs/sglang_integration.md` for glue patterns and examples.
 
 ### Step 4: Benchmark and Tune
 

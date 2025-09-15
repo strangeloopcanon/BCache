@@ -1,0 +1,23 @@
+# Example runtime overrides for engine integrations
+
+vllm:
+  kv:
+    # block_size: 16
+    # num_layers: 32
+    # num_kv_heads: 40
+    # head_size: 128
+    # kv_dtype: float16
+  # deadline_offset_ms: 20
+  # collect_blocks: mypkg.vllm_collectors:collect_blocks_v1
+  # dest_resolver: mypkg.vllm_collectors:resolve_dest_v1
+
+sglang:
+  kv:
+    # block_size: 16
+    # num_layers: 32
+    # num_kv_heads: 40
+    # head_size: 128
+    # kv_dtype: float16
+  # deadline_offset_ms: 20
+  # collect_blocks: mypkg.sgl_collectors:collect_blocks
+  # dest_resolver: mypkg.sgl_collectors:resolve_dest
