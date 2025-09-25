@@ -130,3 +130,36 @@ class NodeAgent:
                 )
         dt = (time.time() - t0) * 1000.0
         return {"ops": int(len(plan_df)), "bytes": int(total_bytes), "duration_ms": float(dt)}
+
+    def prefetch_wave(
+        self,
+        wave: Dict[str, Any],
+        *,
+        model_id: str,
+        model_version: str,
+        on_ready: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> Dict[str, Any]:
+        """Execute the I/O extents specified by a WaveSpec.
+
+        This is a minimal, simulator-friendly path for correctness. It reads the
+        (layer,start_pid,end_pid) ranges and invokes on_ready when done.
+        """
+        io_extents = wave.get("io_extents", [])
+        total_bytes = 0
+        t0 = time.time()
+        for layer, start_pid, end_pid in io_extents:
+            page_bytes = int(wave.get("page_bytes", getattr(self, "page_bytes", 256 * 1024)))
+            if end_pid < start_pid:
+                continue
+            nbytes = (int(end_pid) - int(start_pid) + 1) * page_bytes
+            _ = self.backend.read_range(model_id, model_version, int(layer), int(start_pid), int(end_pid), page_bytes)
+            total_bytes += nbytes
+            if on_ready is not None:
+                on_ready({
+                    "layer": int(layer),
+                    "start_pid": int(start_pid),
+                    "end_pid": int(end_pid),
+                    "bytes": int(nbytes),
+                })
+        dt = (time.time() - t0) * 1000.0
+        return {"ops": int(len(io_extents)), "bytes": int(total_bytes), "duration_ms": float(dt)}
