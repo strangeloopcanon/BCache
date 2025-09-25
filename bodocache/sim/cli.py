@@ -8,6 +8,7 @@ import pandas as pd
 
 from bodocache.planner.scheduler import run_window
 from bodocache.planner.cluster import assign_pclusters_minhash
+from bodocache.planner.waves import build_wave_specs
 from bodocache.agent.sim_node import simulate_plan_streams, summarize_metrics
 from bodocache.adapters.segmented_file_backend import SegmentedFileBackend
 from bodocache.agent.node_agent import NodeAgent
@@ -127,6 +128,23 @@ def main():
     m = summarize_metrics(exec_df)
     print(f"  prefetch_timeliness={m['prefetch_timeliness']:.2f} avg_finish_ms={m['avg_finish_ms']:.1f} ops={m['ops']} (multistream)")
 
+    # Build and show WaveSpec for this window (prototype contract)
+    waves = build_wave_specs(plan_df, req, window_ms=int(cfg.window_ms), dtype='float16')
+    if waves:
+        w = waves[0]
+        bk_bytes = 2 * int(w['bk'])  # fp16/bf16
+        print("WaveSpec:")
+        cluster = tuple(int(x) for x in w.get('cluster_shape', (1, 1)))
+        stage = w.get('tmem_layout', {}).get('stage_n', 'na')
+        print(f"  shape={w['bm']}x{w['bn']}x{w['bk']} (bk_bytes={bk_bytes}, cluster={cluster}, stage={stage})")
+        swap = w.get('swap_window', (None, None))
+        print(
+            "  tiles="
+            f"{len(w.get('tile_order', []))}"
+            f" extents={len(w['io_extents'])}"
+            f" swap={swap}"
+        )
+
     seg_root = 'segments'
     be = SegmentedFileBackend(seg_root)
     for r in plan_df.itertuples(index=False):
@@ -140,4 +158,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
