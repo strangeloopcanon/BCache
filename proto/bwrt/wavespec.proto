@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package bwrt;
+
+message TileCoord {
+  int32 m = 1;
+  int32 n = 2;
+}
+
+message ClusterShape {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+message TMemLayout {
+  int32 columns = 1;
+  int32 phases = 2;
+  bool double_buffer = 3;
+  int32 stage_n = 4;
+}
+
+message IoExtent {
+  string layer = 1;
+  int32 start_pid = 2;
+  int32 end_pid = 3;
+}
+
+message WaveSpec {
+  repeated int32 pack_order = 1;
+  repeated TileCoord tile_order = 2;
+
+  int32 bm = 3;
+  int32 bn = 4;
+  int32 bk = 5;
+
+  ClusterShape cluster_shape = 6;
+  TMemLayout tmem_layout = 7;
+  repeated IoExtent io_extents = 8;
+
+  int32 swap_begin = 9; // inclusive
+  int32 swap_end   = 10; // exclusive
+}
