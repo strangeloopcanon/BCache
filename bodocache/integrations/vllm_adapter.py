@@ -24,6 +24,23 @@ class PrefetchResult:
     metrics: Dict[str, Any] | None = None
 
 
+@dataclass
+class ContextParallelSpec:
+    """Optional context-parallel sharding descriptor.
+
+    When provided, the adapter shards requests by page id modulo `world_size`.
+    This matches a common context-parallel scheme where each rank owns a
+    subset of positions. We conservatively split non-contiguous pages into
+    single-page requests to preserve correctness under modulo sharding.
+
+    Note: Engines that already pre-shard requests per rank should leave this
+    unset; this is a convenience for simple integrations and tests.
+    """
+
+    world_size: int
+    rank: int
+
+
 class VLLMBCacheAdapter:
     """Thin adapter to drive BCache planning/execution from vLLM.
 
@@ -78,6 +95,7 @@ class VLLMBCacheAdapter:
         requests: Sequence[KVRequest],
         *,
         now_ms: int,
+        ctx_shard: Optional[ContextParallelSpec] = None,
         bandwidth_caps: Optional[dict[int, int]] = None,
         free_bytes: Optional[dict[int, int]] = None,
         layer_lat_ms: Optional[dict[int, float]] = None,
@@ -85,6 +103,41 @@ class VLLMBCacheAdapter:
         on_ready: Optional[ReadyCallback] = None,
         dest_resolver: Optional[Callable[[Dict[str, Any]], Any]] = None,
     ) -> PrefetchResult:
+        # Optional context-parallel sharding by page-id modulo
+        if ctx_shard is not None and ctx_shard.world_size > 1:
+            ws = int(ctx_shard.world_size)
+            rk = int(ctx_shard.rank) % ws
+
+            sharded: List[KVRequest] = []
+            for r in requests:
+                # Split into single-page requests owned by this rank.
+                start = int(r.page_start)
+                end = int(r.page_end)
+                if end < start:
+                    continue
+                for pid in range(start, end + 1):
+                    if (pid % ws) != rk:
+                        continue
+                    sharded.append(
+                        KVRequest(
+                            req_id=f"{r.req_id}-sh{pid}",
+                            node=r.node,
+                            model_id=r.model_id,
+                            model_version=r.model_version,
+                            prefix_id=r.prefix_id,
+                            layer=int(r.layer),
+                            page_start=pid,
+                            page_end=pid,
+                            page_bytes=int(r.page_bytes),
+                            tenant=r.tenant,
+                            est_fill_ms=float(r.est_fill_ms),
+                            tier_src=int(r.tier_src),
+                            tier_dst=int(r.tier_dst),
+                            deadline_ms=int(r.deadline_ms),
+                        )
+                    )
+            requests = sharded
+
         # Prepare planner inputs
         pi = PlannerInputs(
             requests=list(requests),

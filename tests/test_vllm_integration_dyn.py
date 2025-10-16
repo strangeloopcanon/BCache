@@ -32,6 +32,8 @@ class DummyEngine:
         self.node = "n0"
         self.model_id = "m"
         self.model_version = "v"
+        self.context_parallel_size = 1
+        self.context_parallel_rank = 0
 
 
 def test_vllm_integration_prefetch(tmp_path):
@@ -54,3 +56,26 @@ def test_vllm_integration_prefetch(tmp_path):
     assert res is not None
     assert res.exec_stats["bytes"] >= 4 * page_bytes
 
+
+def test_vllm_integration_prefetch_context_parallel(tmp_path):
+    be = SegmentedFileBackend(str(tmp_path))
+    page_bytes = 2 * 8 * 16 * 64 * 2
+    for pid in range(4):
+        be.write_page("m", "v", 0, pid, page_bytes, b"x" * page_bytes)
+    agent = NodeAgent(be, page_bytes=page_bytes)
+    adapter = VLLMBCacheAdapter(agent, node="n0", model_id="m", model_version="v", min_io_bytes=0)
+
+    eng = DummyEngine()
+    eng.context_parallel_size = 2
+    eng.context_parallel_rank = 1
+
+    def collector(state) -> Dict[int, List[int]]:
+        return {0: [0, 1, 2, 3]}
+
+    integ = VLLMIntegration(eng, adapter, collect_blocks=collector)
+    now_ms = int(time.time() * 1000)
+    res = integ.prefetch_step(state=None, prefix_id="sess", now_ms=now_ms)
+    assert res is not None
+    assert not res.plan_df.empty
+    starts = sorted(res.plan_df["start_pid"].astype(int).tolist())
+    assert starts == [1, 3]
