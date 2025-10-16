@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import time
 
 import pandas as pd
@@ -13,6 +13,7 @@ from bodocache.telemetry.trace import TraceRecorder, PrefetchEvent
 
 
 ReadyCallback = Callable[[Dict[str, Any]], None]
+HintProvider = Callable[[int, Sequence[KVRequest]], Sequence[KVRequest]]
 
 
 @dataclass
@@ -71,6 +72,7 @@ class VLLMBCacheAdapter:
         on_admit: Optional[Callable[[pd.DataFrame], None]] = None,
         capture_metrics: bool = True,
         trace: Optional[TraceRecorder] = None,
+        hint_provider: Optional[HintProvider] = None,
     ) -> None:
         self.agent = agent
         self.node = node
@@ -89,6 +91,19 @@ class VLLMBCacheAdapter:
         self.on_admit = on_admit
         self.capture_metrics = capture_metrics
         self.trace = trace
+        self.hint_provider = hint_provider
+
+    @staticmethod
+    def _request_key(req: KVRequest) -> Tuple[str, int, int, int, str, int, int]:
+        return (
+            req.prefix_id,
+            int(req.layer),
+            int(req.page_start),
+            int(req.page_end),
+            req.tenant,
+            int(req.tier_src),
+            int(req.tier_dst),
+        )
 
     def prefetch(
         self,
@@ -103,44 +118,70 @@ class VLLMBCacheAdapter:
         on_ready: Optional[ReadyCallback] = None,
         dest_resolver: Optional[Callable[[Dict[str, Any]], Any]] = None,
     ) -> PrefetchResult:
+        live_requests = list(requests)
+        hint_requests: Sequence[KVRequest] = ()
+        if self.hint_provider is not None:
+            try:
+                hint_requests = tuple(self.hint_provider(now_ms, live_requests))
+            except Exception:
+                hint_requests = ()
+
+        combined: Dict[Tuple[str, int, int, int, str, int, int], KVRequest] = {}
+        source_by_key: Dict[Tuple[str, int, int, int, str, int, int], str] = {}
+        for req in live_requests:
+            key = self._request_key(req)
+            combined[key] = req
+            source_by_key[key] = "live"
+        for hint in hint_requests:
+            key = self._request_key(hint)
+            if key in combined:
+                continue
+            combined[key] = hint
+            source_by_key[key] = "hint"
+
+        merged_requests: List[KVRequest] = list(combined.values())
+
         # Optional context-parallel sharding by page-id modulo
         if ctx_shard is not None and ctx_shard.world_size > 1:
             ws = int(ctx_shard.world_size)
             rk = int(ctx_shard.rank) % ws
 
             sharded: List[KVRequest] = []
-            for r in requests:
+            sharded_sources: Dict[Tuple[str, int, int, int, str, int, int], str] = {}
+            for r in merged_requests:
                 # Split into single-page requests owned by this rank.
                 start = int(r.page_start)
                 end = int(r.page_end)
                 if end < start:
                     continue
+                origin_source = source_by_key.get(self._request_key(r), "live")
                 for pid in range(start, end + 1):
                     if (pid % ws) != rk:
                         continue
-                    sharded.append(
-                        KVRequest(
-                            req_id=f"{r.req_id}-sh{pid}",
-                            node=r.node,
-                            model_id=r.model_id,
-                            model_version=r.model_version,
-                            prefix_id=r.prefix_id,
-                            layer=int(r.layer),
-                            page_start=pid,
-                            page_end=pid,
-                            page_bytes=int(r.page_bytes),
-                            tenant=r.tenant,
-                            est_fill_ms=float(r.est_fill_ms),
-                            tier_src=int(r.tier_src),
-                            tier_dst=int(r.tier_dst),
-                            deadline_ms=int(r.deadline_ms),
-                        )
+                    new_req = KVRequest(
+                        req_id=f"{r.req_id}-sh{pid}",
+                        node=r.node,
+                        model_id=r.model_id,
+                        model_version=r.model_version,
+                        prefix_id=r.prefix_id,
+                        layer=int(r.layer),
+                        page_start=pid,
+                        page_end=pid,
+                        page_bytes=int(r.page_bytes),
+                        tenant=r.tenant,
+                        est_fill_ms=float(r.est_fill_ms),
+                        tier_src=int(r.tier_src),
+                        tier_dst=int(r.tier_dst),
+                        deadline_ms=int(r.deadline_ms),
                     )
-            requests = sharded
+                    sharded.append(new_req)
+                    sharded_sources[self._request_key(new_req)] = origin_source
+            merged_requests = sharded
+            source_by_key = sharded_sources
 
         # Prepare planner inputs
         pi = PlannerInputs(
-            requests=list(requests),
+            requests=list(merged_requests),
             window_ms=self.window_ms,
             now_ms=now_ms,
             bandwidth_caps=bandwidth_caps,
@@ -155,6 +196,20 @@ class VLLMBCacheAdapter:
             req_df["node"] = self.node
             req_df["model_id"] = self.model_id
             req_df["model_version"] = self.model_version
+            if source_by_key:
+                def _row_source(row: pd.Series) -> str:
+                    key = (
+                        row["prefix_id"],
+                        int(row["layer"]),
+                        int(row["page_start"]),
+                        int(row["page_end"]),
+                        row["tenant"],
+                        int(row["tier_src"]),
+                        int(row["tier_dst"]),
+                    )
+                    return source_by_key.get(key, "live")
+
+                req_df["request_source"] = req_df.apply(_row_source, axis=1)
 
         # Plan
         plan_df, evict_df, admission_df = run_window(
@@ -175,6 +230,33 @@ class VLLMBCacheAdapter:
             enable_eviction=True,
             enforce_tier_caps=self.enforce_caps,
         )
+
+        if not plan_df.empty:
+            route_hints: List[Optional[str]] = []
+            for row in plan_df.itertuples(index=False):
+                row_layer = int(getattr(row, "layer", -1))
+                row_src = int(getattr(row, "tier_src", -1))
+                row_dst = int(getattr(row, "tier_dst", -1))
+                row_start = int(getattr(row, "start_pid", -1))
+                row_end = int(getattr(row, "end_pid", -1))
+                candidates: List[KVRequest] = [
+                    req
+                    for req in merged_requests
+                    if int(req.layer) == row_layer
+                    and int(req.tier_src) == row_src
+                    and int(req.tier_dst) == row_dst
+                    and int(req.page_end) >= row_start
+                    and int(req.page_start) <= row_end
+                ]
+                chosen: Optional[KVRequest] = None
+                for req in candidates:
+                    if source_by_key.get(self._request_key(req), "live") == "live":
+                        chosen = req
+                        break
+                if chosen is None and candidates:
+                    chosen = candidates[0]
+                route_hints.append(f"prefix:{chosen.prefix_id}" if chosen is not None else None)
+            plan_df = plan_df.assign(route_hint=route_hints)
 
         # Optional eviction/admission side-effects
         if self.on_evict is not None and not evict_df.empty:

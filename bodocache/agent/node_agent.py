@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 from typing import Callable, Dict, Any, Optional
 
-import numpy as np
 import pandas as pd
 
 from bodocache.adapters.segmented_file_backend import SegmentedFileBackend
@@ -45,6 +44,7 @@ class NodeAgent:
             start_pid = int(r.start_pid)
             end_pid = int(r.end_pid)
             page_bytes = int(getattr(r, "page_bytes", self.page_bytes))
+            route_hint = getattr(r, "route_hint", None)
             # Compute total bytes for this coalesced read
             nbytes = (end_pid - start_pid + 1) * page_bytes if end_pid >= start_pid else 0
             total_bytes += nbytes
@@ -61,6 +61,7 @@ class NodeAgent:
                 "start_pid": start_pid,
                 "end_pid": end_pid,
                 "bytes": nbytes,
+                "route_hint": route_hint,
             }) if dest_resolver is not None else None
 
             if self.copy_engine is not None and dst is not None:
@@ -93,7 +94,8 @@ class NodeAgent:
                         deadline_ms=int(getattr(r, "deadline_ms", 0)) if hasattr(r, "deadline_ms") else 0,
                     )
 
-                    def _done(_op: CopyOp, _r=r) -> None:
+                    def _done(_op: CopyOp, _r=r, _bytes=nbytes) -> None:
+                        _route_hint = getattr(_r, "route_hint", None)
                         if on_ready is not None:
                             on_ready(
                                 {
@@ -101,7 +103,8 @@ class NodeAgent:
                                     "layer": int(_r.layer),
                                     "start_pid": int(_r.start_pid),
                                     "end_pid": int(_r.end_pid),
-                                    "bytes": nbytes,
+                                    "bytes": _bytes,
+                                    "route_hint": _route_hint,
                                 }
                             )
 
@@ -126,6 +129,7 @@ class NodeAgent:
                         "start_pid": start_pid,
                         "end_pid": end_pid,
                         "bytes": len(data),
+                        "route_hint": route_hint,
                     }
                 )
         dt = (time.time() - t0) * 1000.0
