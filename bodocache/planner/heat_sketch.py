@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Dict, Iterable, Tuple
 
 
 @dataclass
@@ -31,7 +31,7 @@ class CountMinSketch:
 class SpaceSaving:
     def __init__(self, k: int):
         self.k = k
-        self.counters: Dict[str, Tuple[int, int]] = {}  # key -> (count, err)
+        self.counters: dict[str, tuple[int, int]] = {}  # key -> (count, err)
 
     def add(self, x: str, c: int = 1):
         if x in self.counters:
@@ -47,7 +47,7 @@ class SpaceSaving:
         del self.counters[min_k]
         self.counters[x] = (min_cnt + c, min_cnt)
 
-    def topk(self) -> Iterable[Tuple[str, int, int]]:
+    def topk(self) -> Iterable[tuple[str, int, int]]:
         for k, (cnt, err) in self.counters.items():
             yield (k, cnt, err)
 
@@ -58,7 +58,9 @@ class HeatSketch:
     Values decay by exp(-lambda * dt) where dt is seconds since last decay.
     """
 
-    def __init__(self, width: int = 4096, depth: int = 4, k: int = 4096, decay_lambda: float = 0.01):
+    def __init__(
+        self, width: int = 4096, depth: int = 4, k: int = 4096, decay_lambda: float = 0.01
+    ):
         self.cms = CountMinSketch(width, depth)
         self.ss = SpaceSaving(k)
         self.decay_lambda = decay_lambda
@@ -89,6 +91,5 @@ class HeatSketch:
             est = min(est, self.ss.counters[key][0])
         return est
 
-    def export_heat(self) -> Dict[str, int]:
+    def export_heat(self) -> dict[str, int]:
         return {k: cnt for k, cnt, _ in self.ss.topk()}
-

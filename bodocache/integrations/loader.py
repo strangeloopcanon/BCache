@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 def load_callable(spec: str) -> Callable[..., Any]:
@@ -17,4 +18,3 @@ def load_callable(spec: str) -> Callable[..., Any]:
     if not callable(fn):
         raise TypeError(f"{spec} is not callable")
     return fn
-

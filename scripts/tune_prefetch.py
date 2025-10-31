@@ -3,9 +3,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
-import os
 import statistics
-import time
 
 from scripts.microbench_copy import run_once
 
@@ -35,19 +33,20 @@ def main():
             used_device = used
         avg_ms = statistics.mean(timings)
         avg_bytes = statistics.mean(bytes_vals)
-        results.append({
-            "streams": streams,
-            "page_bytes": pb,
-            "pages": args.pages,
-            "avg_ms": avg_ms,
-            "avg_bytes": avg_bytes,
-            "ready_events": int(statistics.mean(ready_counts)),
-            "mode": "native" if used_device else "simulation",
-        })
+        results.append(
+            {
+                "streams": streams,
+                "page_bytes": pb,
+                "pages": args.pages,
+                "avg_ms": avg_ms,
+                "avg_bytes": avg_bytes,
+                "ready_events": int(statistics.mean(ready_counts)),
+                "mode": "native" if used_device else "simulation",
+            }
+        )
 
     print(json.dumps(results, indent=2))
 
 
 if __name__ == "__main__":
     main()
-

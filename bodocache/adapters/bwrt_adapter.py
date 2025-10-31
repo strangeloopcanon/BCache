@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 try:  # pragma: no cover - optional fast path
     from bwrt import _bwrt as bw  # type: ignore
+
     _HAVE_PYBIND = True
 except Exception:  # pragma: no cover - optional fast path
     bw = None  # type: ignore
@@ -14,8 +15,11 @@ if not _HAVE_PYBIND:
         from bwrt.runtime import BwRuntime as _BwRt  # type: ignore
         from bwrt.wavespec_adapter import (  # type: ignore
             wavespec_from_dict as _ws_from_dict,
+        )
+        from bwrt.wavespec_adapter import (
             wavespec_from_proto as _ws_from_proto,
         )
+
         _HAVE_CTYPES = True
     except Exception:  # pragma: no cover - runtime not installed
         _BwRt = None  # type: ignore
@@ -33,7 +37,9 @@ def _ptr_from_obj(obj: Any) -> int:
     ai = getattr(obj, "__array_interface__", None) or getattr(obj, "array_interface", None)
     if ai and "data" in ai:
         return int(ai["data"][0])
-    cai = getattr(obj, "__cuda_array_interface__", None) or getattr(obj, "cuda_array_interface", None)
+    cai = getattr(obj, "__cuda_array_interface__", None) or getattr(
+        obj, "cuda_array_interface", None
+    )
     if cai and "data" in cai:
         data = cai["data"][0]
         if isinstance(data, (tuple, list)):
@@ -47,11 +53,11 @@ def _ptr_from_obj(obj: Any) -> int:
     )
 
 
-def _normalise_tile_order(to_seq: Any) -> List[Tuple[int, int]] | None:
+def _normalise_tile_order(to_seq: Any) -> list[tuple[int, int]] | None:
     if to_seq is None:
         return None
     if isinstance(to_seq, (list, tuple)):
-        out: List[Tuple[int, int]] = []
+        out: list[tuple[int, int]] = []
         for item in to_seq:
             if isinstance(item, (list, tuple)) and len(item) == 2:
                 out.append((int(item[0]), int(item[1])))
@@ -60,13 +66,13 @@ def _normalise_tile_order(to_seq: Any) -> List[Tuple[int, int]] | None:
                     # Treat as flattened index; decode later if runtime provides dims.
                     idx = int(item)
                     out.append((idx, 0))
-                except Exception:  # pragma: no cover - defensive
+                except (TypeError, ValueError):  # pragma: no cover - defensive
                     continue
         return out
     return None
 
 
-def _flatten_tile_order(tile_pairs: List[Tuple[int, int]] | None) -> List[int] | None:
+def _flatten_tile_order(tile_pairs: list[tuple[int, int]] | None) -> list[int] | None:
     if not tile_pairs:
         return None
     return [int(r) << 16 | int(c) for r, c in tile_pairs]
@@ -84,7 +90,8 @@ class BwRuntimeAdapter:
             self._runtime = _BwRt(device_index=device_index)  # type: ignore[operator]
         else:
             raise RuntimeError(
-                "bwrt runtime is not installed; install bwrt wheel with either pybind or ctypes backend"
+                "bwrt runtime is not installed; install bwrt wheel with either pybind "
+                "or ctypes backend"
             )
 
     def _to_spec(self, spec_any: Any):
@@ -105,9 +112,17 @@ class BwRuntimeAdapter:
                 bm = int(spec_any.bm)
                 bn = int(spec_any.bn)
                 bk = int(spec_any.bk)
-                cluster = getattr(spec_any, "cluster_shape", (getattr(spec_any, "cluster_x", 1), getattr(spec_any, "cluster_y", 1)))
+                cluster = getattr(
+                    spec_any,
+                    "cluster_shape",
+                    (getattr(spec_any, "cluster_x", 1), getattr(spec_any, "cluster_y", 1)),
+                )
                 cx, cy = int(cluster[0]), int(cluster[1])
-                swap_window = getattr(spec_any, "swap_window", (getattr(spec_any, "swap_begin", 0), getattr(spec_any, "swap_end", 1)))
+                swap_window = getattr(
+                    spec_any,
+                    "swap_window",
+                    (getattr(spec_any, "swap_begin", 0), getattr(spec_any, "swap_end", 1)),
+                )
                 sb, se = int(swap_window[0]), int(swap_window[1])
                 tile_pairs = _normalise_tile_order(getattr(spec_any, "tile_order", None))
                 if not tile_pairs:
@@ -143,8 +158,12 @@ class BwRuntimeAdapter:
         if isinstance(spec_any, dict):
             if not _HAVE_CTYPES:
                 raise RuntimeError("bwrt ctypes adapter unavailable; install bwrt runtime")
-            cluster = spec_any.get("cluster_shape", (spec_any.get("cluster_x", 1), spec_any.get("cluster_y", 1)))
-            swap_window = spec_any.get("swap_window", (spec_any.get("swap_begin", 0), spec_any.get("swap_end", 1)))
+            cluster = spec_any.get(
+                "cluster_shape", (spec_any.get("cluster_x", 1), spec_any.get("cluster_y", 1))
+            )
+            swap_window = spec_any.get(
+                "swap_window", (spec_any.get("swap_begin", 0), spec_any.get("swap_end", 1))
+            )
             enriched = dict(spec_any)
             enriched.setdefault("cluster_x", int(cluster[0]))
             enriched.setdefault("cluster_y", int(cluster[1]))
@@ -156,7 +175,7 @@ class BwRuntimeAdapter:
             return _ws_from_dict(enriched)  # type: ignore[misc]
         if not _HAVE_CTYPES:
             raise RuntimeError("bwrt ctypes adapter unavailable; install bwrt runtime")
-        return _ws_from_proto(spec_any)  # type: ignore[misc]
+        return _ws_from_proto(spec_any)
 
     def submit_and_wait(self, wavespec_any: Any, A: Any, B: Any, C: Any):
         spec = self._to_spec(wavespec_any)
@@ -179,7 +198,7 @@ class BwRuntimeAdapter:
         self._runtime.set_weights(w_ptr)
 
 
-__all__: Iterable[str] = ("BwRuntimeAdapter", "_ptr_from_obj")
+__all__ = ("BwRuntimeAdapter", "_ptr_from_obj")
 
 
 if __name__ == "__main__":  # pragma: no cover - manual smoke test

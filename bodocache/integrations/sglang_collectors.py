@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import contextlib
+from typing import Any
 
 from .ptr import from_torch_tensor
 
@@ -8,7 +9,7 @@ from .ptr import from_torch_tensor
 def make_sglang_collector(engine: Any):
     bm = getattr(engine, "block_manager", None) or getattr(engine, "cache_engine", None)
 
-    def collector(state: Any) -> Dict[int, List[int]]:
+    def collector(state: Any) -> dict[int, list[int]]:
         if bm is not None:
             for name in ("next_required_blocks", "get_required_blocks", "collect_required_blocks"):
                 fn = getattr(bm, name, None)
@@ -32,14 +33,13 @@ def make_sglang_collector(engine: Any):
 
 def make_sglang_dest_resolver(kv_manager: Any):
     def _as_ptr(obj: Any) -> Any:
-        if hasattr(obj, "data_ptr") and callable(getattr(obj, "data_ptr")):
+        if hasattr(obj, "data_ptr") and callable(obj.data_ptr):
             return from_torch_tensor(obj)
-        try:
+        with contextlib.suppress(Exception):
             return int(obj)
-        except Exception:
-            return None
+        return None
 
-    def resolver(info: Dict[str, Any]):
+    def resolver(info: dict[str, Any]):
         layer = int(info["layer"])
         start = int(info["start_pid"])
         end = int(info["end_pid"])
@@ -55,14 +55,11 @@ def make_sglang_dest_resolver(kv_manager: Any):
                 ptr = _as_ptr(t)
                 if ptr is not None:
                     return ptr
-        try:
+        with contextlib.suppress(Exception):
             t = kv_manager[(layer, start, end)]
             ptr = _as_ptr(t)
             if ptr is not None:
                 return ptr
-        except Exception:
-            pass
         return None
 
     return resolver
-

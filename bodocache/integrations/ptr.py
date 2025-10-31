@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import types
-
 
 def device_ptr_capsule(ptr: int) -> Any:
     """Create a PyCapsule that holds a raw device pointer.
@@ -12,7 +10,6 @@ def device_ptr_capsule(ptr: int) -> Any:
     This helper wraps that integer as a capsule consumable by the native copy engine.
     """
     import ctypes
-    import sys
 
     name = b"device_ptr"
     # Create a capsule using CPython C-API via ctypes
@@ -28,6 +25,5 @@ def from_torch_tensor(tensor: Any) -> Any:
 
     The caller should have a torch tensor; we avoid hard dependency to keep the package light.
     """
-    ptr = int(getattr(tensor, "data_ptr")())
+    ptr = int(tensor.data_ptr())
     return device_ptr_capsule(ptr)
-

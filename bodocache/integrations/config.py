@@ -1,26 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Any
 
 try:
-    import yaml  # type: ignore
+    import yaml
 except Exception:  # pragma: no cover - optional dependency
-    yaml = None  # type: ignore
+    yaml = None
 
 from .vllm_blocks import VLLMCacheConfig
 
 
 @dataclass
 class KVOverrides:
-    block_size: Optional[int] = None
-    num_layers: Optional[int] = None
-    num_kv_heads: Optional[int] = None
-    head_size: Optional[int] = None
-    kv_dtype: Optional[str] = None
+    block_size: int | None = None
+    num_layers: int | None = None
+    num_kv_heads: int | None = None
+    head_size: int | None = None
+    kv_dtype: str | None = None
 
 
-def apply_kv_overrides(cfg: VLLMCacheConfig, overrides: KVOverrides | Dict[str, Any] | None) -> VLLMCacheConfig:
+def apply_kv_overrides(
+    cfg: VLLMCacheConfig, overrides: KVOverrides | dict[str, Any] | None
+) -> VLLMCacheConfig:
     if overrides is None:
         return cfg
     if isinstance(overrides, dict):
@@ -39,7 +41,7 @@ def apply_kv_overrides(cfg: VLLMCacheConfig, overrides: KVOverrides | Dict[str, 
 def load_kv_overrides(path: str) -> KVOverrides:
     if yaml is None:
         raise ImportError("pyyaml is required to load overrides from YAML")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     kv = data.get("kv", {})
     return KVOverrides(
@@ -49,4 +51,3 @@ def load_kv_overrides(path: str) -> KVOverrides:
         head_size=kv.get("head_size"),
         kv_dtype=kv.get("kv_dtype"),
     )
-

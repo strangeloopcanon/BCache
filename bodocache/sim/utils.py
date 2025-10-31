@@ -2,32 +2,30 @@ from __future__ import annotations
 
 import random
 import time
-from typing import List
 
-import numpy as np
 import pandas as pd
 
 
 def synthetic_requests(n_req: int = 200, n_layers: int = 8) -> pd.DataFrame:
-    rows: List[tuple] = []
+    rows: list[tuple] = []
     now_ms = int(time.time() * 1000)
     for rid in range(n_req):
-        node = f"node-{random.randint(0,3)}"
+        node = f"node-{random.randint(0,3)}"  # nosec B311
         model_id = "m70b"
         model_version = "v1"
-        base = random.randint(0, 9)
-        delta = random.randint(0, 3)
+        base = random.randint(0, 9)  # nosec B311
+        delta = random.randint(0, 3)  # nosec B311
         prefix_id = f"pfx-{base}-{delta}"
-        layer = random.randint(0, n_layers - 1)
-        length = random.choice([1, 2, 4, 8, 16])
-        start = random.randint(0, 1024 - length)
+        layer = random.randint(0, n_layers - 1)  # nosec B311
+        length = random.choice([1, 2, 4, 8, 16])  # nosec B311
+        start = random.randint(0, 1024 - length)  # nosec B311
         end = start + length - 1
         tier_src = 0
         tier_dst = 1
-        deadline_ms = now_ms + random.randint(5, 60) * 10
-        page_bytes = random.choice([128, 256, 512]) * 1024
-        tenant = random.choice(["A", "B", "C"])
-        est_fill_ms = random.choice([1, 2, 5, 10, 20])
+        deadline_ms = now_ms + random.randint(5, 60) * 10  # nosec B311
+        page_bytes = random.choice([128, 256, 512]) * 1024  # nosec B311
+        tenant = random.choice(["A", "B", "C"])  # nosec B311
+        est_fill_ms = random.choice([1, 2, 5, 10, 20])  # nosec B311
         tok_base = [base] * 64
         tok = tok_base + [delta] * 16
         rows.append(
@@ -104,7 +102,6 @@ def synthetic_tenant_caps(tenants: pd.Series, credits_bytes: int) -> pd.DataFram
 
 def synthetic_layer_lat(n_layers: int = 8) -> pd.DataFrame:
     rows = []
-    for l in range(n_layers):
-        rows.append([l, 5.0 + 0.5 * l])
+    for layer_idx in range(n_layers):
+        rows.append([layer_idx, 5.0 + 0.5 * layer_idx])
     return pd.DataFrame(rows, columns=["layer", "lat_ms"])
-

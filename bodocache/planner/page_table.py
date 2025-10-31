@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple
 
 from .models import PageKey, Tier
 
@@ -9,9 +9,9 @@ from .models import PageKey, Tier
 @dataclass
 class Location:
     tier: Tier
-    node: Optional[str] = None
-    path: Optional[str] = None  # for file backend
-    gpu_id: Optional[int] = None
+    node: str | None = None
+    path: str | None = None  # for file backend
+    gpu_id: int | None = None
 
 
 class PageTable:
@@ -21,7 +21,7 @@ class PageTable:
     """
 
     def __init__(self):
-        self._loc: Dict[str, Location] = {}
+        self._loc: dict[str, Location] = {}
 
     @staticmethod
     def encode_key(k: PageKey) -> str:
@@ -30,18 +30,18 @@ class PageTable:
     def set(self, key: PageKey, location: Location):
         self._loc[self.encode_key(key)] = location
 
-    def get(self, key: PageKey) -> Optional[Location]:
+    def get(self, key: PageKey) -> Location | None:
         return self._loc.get(self.encode_key(key))
 
     def exists(self, key: PageKey) -> bool:
         return self.encode_key(key) in self._loc
 
-    def bulk_get(self, keys: Iterable[PageKey]) -> List[Optional[Location]]:
+    def bulk_get(self, keys: Iterable[PageKey]) -> list[Location | None]:
         return [self.get(k) for k in keys]
 
     def iter_layer_pages(
         self, model_id: str, model_version: str, layer: int
-    ) -> Iterable[Tuple[PageKey, Location]]:
+    ) -> Iterable[tuple[PageKey, Location]]:
         for encoded, loc in self._loc.items():
             parts = encoded.split(":")
             if len(parts) != 7:
@@ -54,7 +54,7 @@ class PageTable:
                 )
 
     @staticmethod
-    def contiguous_runs(page_ids: List[int]) -> List[Tuple[int, int]]:
+    def contiguous_runs(page_ids: list[int]) -> list[tuple[int, int]]:
         if not page_ids:
             return []
         page_ids = sorted(page_ids)
@@ -70,4 +70,3 @@ class PageTable:
             prev = p
         runs.append((start, prev))
         return runs
-

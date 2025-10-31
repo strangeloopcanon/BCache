@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Tuple
 import os
 
 import numpy as np
@@ -8,19 +7,23 @@ import pandas as pd
 
 # Optional Bodo dependency: provide a no-op fallback for tests/runtime without Bodo
 try:  # pragma: no cover - trivial import/fallback
-    import bodo  # type: ignore
+    import bodo
 except Exception:  # Bodo not available; define a minimal shim with a no-op jit decorator
+
     class _NoBodo:  # pragma: no cover - simple decorator shim
         def jit(self, func=None, **kwargs):
             if func is None:
+
                 def wrapper(f):
                     return f
+
                 return wrapper
             return func
 
-    bodo = _NoBodo()  # type: ignore
+    bodo = _NoBodo()
 
-from .pipeline import score_and_filter, apply_tenant_caps, coalesce_intervals, apply_caps
+from .pipeline import apply_caps, apply_tenant_caps, coalesce_intervals, score_and_filter
+
 
 @bodo.jit
 def run_window_core(
@@ -63,7 +66,9 @@ def run_window_core(
     heat = heat[heat_cols]
     df = df.merge(heat, on=["layer", "page_id"], how="left")
     df["decay_hits"] = df["decay_hits"].fillna(0).astype(np.int64)
-    df["tenant_weight"] = df["tenant_weight"].astype(np.float64).where(df["tenant_weight"].notna(), 1.0)
+    df["tenant_weight"] = (
+        df["tenant_weight"].astype(np.float64).where(df["tenant_weight"].notna(), 1.0)
+    )
 
     # Scores
     df["pop"] = alpha * df["decay_hits"] + beta * df["tenant_weight"]
@@ -77,8 +82,14 @@ def run_window_core(
     cand["length"] = (cand["page_end"] - cand["page_start"] + 1).astype(np.int64)
     cand["bytes_row"] = cand["length"].astype(np.int64) * cand["page_bytes"].astype(np.int64)
     tcap = tenant_caps_df.rename(columns={"tier": "tier_dst", "bandwidth_caps": "tenant_cap"})
-    cand = cand.merge(tcap[["tenant", "tier_dst", "tenant_cap"]], on=["tenant", "tier_dst"], how="left")
-    cand["tenant_cap"] = cand["tenant_cap"].astype(np.float64).where(cand["tenant_cap"].notna(), 9_223_372_036_854_775_807)
+    cand = cand.merge(
+        tcap[["tenant", "tier_dst", "tenant_cap"]], on=["tenant", "tier_dst"], how="left"
+    )
+    cand["tenant_cap"] = (
+        cand["tenant_cap"]
+        .astype(np.float64)
+        .where(cand["tenant_cap"].notna(), 9_223_372_036_854_775_807)
+    )
     cand = cand.sort_values(by=["node", "tier_dst", "tenant", "deadline_ms"]).reset_index(drop=True)
     grp_t = ["node", "tier_dst", "tenant"]
     cand["cum_bytes_tenant"] = cand.groupby(grp_t)["bytes_row"].cumsum()
@@ -104,11 +115,11 @@ def run_window_core(
     g = cand.groupby(run_grp)
     cummax_end = g["page_end"].cummax()
     prev_cummax_end = (
-        cand.assign(_cummax_end=cummax_end)
-            .groupby(run_grp)["_cummax_end"].shift(1)
-            .fillna(-1)
+        cand.assign(_cummax_end=cummax_end).groupby(run_grp)["_cummax_end"].shift(1).fillna(-1)
     )
-    eff_start = np.maximum(cand["page_start"].astype(np.int64), (prev_cummax_end + 1).astype(np.int64))
+    eff_start = np.maximum(
+        cand["page_start"].astype(np.int64), (prev_cummax_end + 1).astype(np.int64)
+    )
     pages = np.maximum(0, cand["page_end"].astype(np.int64) - eff_start + 1)
     cand["_pages"] = pages
 
@@ -126,16 +137,36 @@ def run_window_core(
         .reset_index()
     )
     runs["bytes"] = runs["pages"].astype(np.int64) * runs["page_bytes"].astype(np.int64)
-    plan = runs[runs["bytes"] >= int(min_io_bytes)][["node", "tier_src", "tier_dst", "pcluster", "layer", "run_id", "bytes", "deadline_ms", "fanout", "urgency_min", "start_pid", "end_pid", "page_bytes"]]
+    plan = runs[runs["bytes"] >= int(min_io_bytes)][
+        [
+            "node",
+            "tier_src",
+            "tier_dst",
+            "pcluster",
+            "layer",
+            "run_id",
+            "bytes",
+            "deadline_ms",
+            "fanout",
+            "urgency_min",
+            "start_pid",
+            "end_pid",
+            "page_bytes",
+        ]
+    ]
 
     # Apply per-tier bandwidth caps per node (greedy by earliest deadline)
-    caps = tier_caps_df[["tier", "bandwidth_caps", "free_bytes"]].rename(columns={"tier": "tier_dst"})
+    caps = tier_caps_df[["tier", "bandwidth_caps", "free_bytes"]].rename(
+        columns={"tier": "tier_dst"}
+    )
     plan = plan.merge(caps, on="tier_dst", how="left")
     # Join per-layer latency (ms)
     lat = layer_lat_df[["layer", "lat_ms"]]
     plan = plan.merge(lat, on="layer", how="left")
     plan["lat_ms"] = plan["lat_ms"].astype(np.float64).where(plan["lat_ms"].notna(), 1.0)
-    plan = plan.sort_values(by=["node", "tier_src", "tier_dst", "deadline_ms"]).reset_index(drop=True)
+    plan = plan.sort_values(by=["node", "tier_src", "tier_dst", "deadline_ms"]).reset_index(
+        drop=True
+    )
     grp2 = ["node", "tier_src", "tier_dst"]
     plan["cum_bytes"] = plan.groupby(grp2)["bytes"].cumsum()
     # Compute effective cap and optionally enforce it
@@ -149,7 +180,7 @@ def run_window_core(
     # Limit number of ops per (node,tier_dst) to avoid stream overload
     MAX_OPS = np.int64(max_ops_per_tier)
     plan["one"] = np.int64(1)
-    plan["op_rank"] = plan.groupby(["node", "tier_dst"])['one'].cumsum()
+    plan["op_rank"] = plan.groupby(["node", "tier_dst"])["one"].cumsum()
     # Estimate copy time (ms) for each op from cap per window
     # bandwidth_caps is bytes per window => ms = (bytes / cap) * window_ms
     bc = plan["bandwidth_caps"].astype(np.float64)
@@ -159,15 +190,28 @@ def run_window_core(
     plan = plan[plan["op_rank"] <= MAX_OPS]
     # Overlap depth hint: deeper when predicted copy time exceeds per-layer latency budget
     # overlap = 1 + I(copy>lat) + I(copy>2*lat) capped at 3
-    gt1 = (plan["est_copy_ms"] > plan["lat_ms" ]).astype(np.int64)
-    gt2 = (plan["est_copy_ms"] > (2.0 * plan["lat_ms" ])).astype(np.int64)
+    gt1 = (plan["est_copy_ms"] > plan["lat_ms"]).astype(np.int64)
+    gt2 = (plan["est_copy_ms"] > (2.0 * plan["lat_ms"])).astype(np.int64)
     plan["overlap"] = np.minimum(np.int64(3), np.int64(1) + gt1 + gt2)
     plan["priority"] = plan["urgency_min"]
-    plan = plan[[
-        "node", "tier_src", "tier_dst", "pcluster", "layer", "run_id",
-        "bytes", "deadline_ms", "fanout", "overlap", "priority",
-        "start_pid", "end_pid", "page_bytes",
-    ]]
+    plan = plan[
+        [
+            "node",
+            "tier_src",
+            "tier_dst",
+            "pcluster",
+            "layer",
+            "run_id",
+            "bytes",
+            "deadline_ms",
+            "fanout",
+            "overlap",
+            "priority",
+            "start_pid",
+            "end_pid",
+            "page_bytes",
+        ]
+    ]
     return plan.reset_index(drop=True)
 
 
@@ -188,9 +232,7 @@ def run_window_core_py(
     enforce_tier_caps: bool,
 ) -> pd.DataFrame:
     # Pure-Python fallback with structured stages mirroring the JIT path
-    cand0 = score_and_filter(
-        requests_df, heat_df, now_ms, pmin, umin, alpha, beta
-    )
+    cand0 = score_and_filter(requests_df, heat_df, now_ms, pmin, umin, alpha, beta)
     cand1 = apply_tenant_caps(cand0, tenant_caps_df)
     runs = coalesce_intervals(cand1, min_io_bytes=min_io_bytes)
     plan = apply_caps(

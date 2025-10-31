@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Sequence, Tuple
 
 from .base import KVRequest
-
 
 _DTYPE_BYTES = {
     "float16": 2,
@@ -29,7 +28,7 @@ class VLLMCacheConfig:
         return 2 * self.num_kv_heads * self.block_size * self.head_size * bpe
 
 
-def coalesce_blocks(block_ids: Sequence[int]) -> List[Tuple[int, int]]:
+def coalesce_blocks(block_ids: Sequence[int]) -> list[tuple[int, int]]:
     if not block_ids:
         return []
     s = sorted(set(int(b) for b in block_ids))
@@ -54,12 +53,12 @@ def build_requests_from_blocks(
     model_version: str,
     tenant: str,
     prefix_id: str,
-    layer_to_blocks: Dict[int, Sequence[int]],
+    layer_to_blocks: dict[int, Sequence[int]],
     now_ms: int,
     deadline_offset_ms: int = 20,
-) -> List[KVRequest]:
+) -> list[KVRequest]:
     page_bytes = cfg.bytes_per_block()
-    reqs: List[KVRequest] = []
+    reqs: list[KVRequest] = []
     for layer, blocks in layer_to_blocks.items():
         for start, end in coalesce_blocks(blocks):
             reqs.append(
@@ -81,4 +80,3 @@ def build_requests_from_blocks(
                 )
             )
     return reqs
-

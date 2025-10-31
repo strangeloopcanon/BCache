@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Tuple
 
 
 class Tier(Enum):
@@ -21,7 +20,7 @@ class PageKey:
     layer: int
     page_id: int
 
-    def as_tuple(self) -> Tuple:
+    def as_tuple(self) -> tuple:
         return (
             self.model_id,
             self.model_version,
@@ -71,8 +70,8 @@ class CopyOp:
     page_key: PageKey
     offset: int
     bytes: int
-    gpu_id: Optional[int]
-    stream_id: Optional[int]
+    gpu_id: int | None
+    stream_id: int | None
     deadline_ms: int
     src: Tier
     dst: Tier
@@ -80,11 +79,10 @@ class CopyOp:
 
 @dataclass
 class Plan:
-    ops: List[CopyOp]
-    evict_keys: List[PageKey]
+    ops: list[CopyOp]
+    evict_keys: list[PageKey]
     # Optional: admission decisions (target tier)
-    admission: List[Tuple[PageKey, Tier]]
+    admission: list[tuple[PageKey, Tier]]
 
 
 DEFAULT_PAGE_BYTES = 256 * 1024
-

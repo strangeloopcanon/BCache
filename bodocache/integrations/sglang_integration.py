@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Sequence
+import contextlib
+from collections.abc import Callable, Sequence
+from typing import Any
 
-from .sglang_adapter import SGLangBCacheAdapter, PrefetchResult
-from .vllm_blocks import VLLMCacheConfig, build_requests_from_blocks
 from .config import KVOverrides, apply_kv_overrides
+from .sglang_adapter import PrefetchResult, SGLangBCacheAdapter
+from .vllm_blocks import VLLMCacheConfig, build_requests_from_blocks
 
-
-CollectBlocksFn = Callable[[Any], Dict[int, Sequence[int]]]
-DestResolverFn = Callable[[Dict[str, Any]], Any]
+CollectBlocksFn = Callable[[Any], dict[int, Sequence[int]]]
+DestResolverFn = Callable[[dict[str, Any]], Any]
 GetConfigFn = Callable[[Any], VLLMCacheConfig]
 
 
@@ -44,15 +44,15 @@ def _derive_config(engine: Any) -> VLLMCacheConfig:
         or _safe_get(engine, ("cache_config", "kv_dtype"), "float16"),
         "float16",
     )
-    mc = getattr(engine, "model_config", None) or _safe_get(engine, ("engine", "model_config"), None)
+    mc = getattr(engine, "model_config", None) or _safe_get(
+        engine, ("engine", "model_config"), None
+    )
     num_layers = _maybe_int(getattr(mc, "num_hidden_layers", None), 0)
     num_kv_heads = 0
     if mc is not None:
         if hasattr(mc, "get_num_kv_heads"):
-            try:
+            with contextlib.suppress(Exception):
                 num_kv_heads = int(mc.get_num_kv_heads())
-            except Exception:
-                pass
         if num_kv_heads <= 0:
             num_kv_heads = _maybe_int(getattr(mc, "num_key_value_heads", None), 0)
         if num_kv_heads <= 0:
@@ -85,11 +85,11 @@ class SGLangIntegration:
         adapter: SGLangBCacheAdapter,
         *,
         tenant: str = "default",
-        get_config: Optional[GetConfigFn] = None,
-        collect_blocks: Optional[CollectBlocksFn] = None,
-        dest_resolver: Optional[DestResolverFn] = None,
-        kv_overrides: Optional[KVOverrides | Dict[str, Any]] = None,
-        deadline_offset_ms: Optional[int] = None,
+        get_config: GetConfigFn | None = None,
+        collect_blocks: CollectBlocksFn | None = None,
+        dest_resolver: DestResolverFn | None = None,
+        kv_overrides: KVOverrides | dict[str, Any] | None = None,
+        deadline_offset_ms: int | None = None,
     ) -> None:
         self.engine = engine
         self.adapter = adapter
@@ -101,7 +101,11 @@ class SGLangIntegration:
         self._deadline_offset_ms = deadline_offset_ms
 
     def _config(self) -> VLLMCacheConfig:
-        cfg = self._get_config(self.engine) if self._get_config is not None else _derive_config(self.engine)
+        cfg = (
+            self._get_config(self.engine)
+            if self._get_config is not None
+            else _derive_config(self.engine)
+        )
         return apply_kv_overrides(cfg, self._kv_overrides)
 
     def prefetch_step(
@@ -110,10 +114,10 @@ class SGLangIntegration:
         *,
         prefix_id: str,
         now_ms: int,
-        layer_lat_ms: Optional[Dict[int, float]] = None,
-        bandwidth_caps: Optional[Dict[int, int]] = None,
-        free_bytes: Optional[Dict[int, int]] = None,
-    ) -> Optional[PrefetchResult]:
+        layer_lat_ms: dict[int, float] | None = None,
+        bandwidth_caps: dict[int, int] | None = None,
+        free_bytes: dict[int, int] | None = None,
+    ) -> PrefetchResult | None:
         cfg = self._config()
         if self._collect_blocks is None:
             return None
@@ -127,7 +131,11 @@ class SGLangIntegration:
             prefix_id=prefix_id,
             layer_to_blocks=layer_to_blocks,
             now_ms=now_ms,
-            deadline_offset_ms=int(self._deadline_offset_ms if self._deadline_offset_ms is not None else self.adapter.window_ms),
+            deadline_offset_ms=int(
+                self._deadline_offset_ms
+                if self._deadline_offset_ms is not None
+                else self.adapter.window_ms
+            ),
         )
         return self.adapter.prefetch(
             kv_reqs,

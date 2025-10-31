@@ -1,6 +1,6 @@
 from .base import KVRequest, PlannerInputs, build_dataframes
-from .vllm_adapter import VLLMBCacheAdapter, ContextParallelSpec
 from .sglang_adapter import SGLangBCacheAdapter
+from .vllm_adapter import ContextParallelSpec, VLLMBCacheAdapter
 
 __all__ = [
     "KVRequest",

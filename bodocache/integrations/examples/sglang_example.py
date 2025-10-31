@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
 import time
+from typing import Any
 
 from bodocache.integrations.base import KVRequest
+from bodocache.integrations.ptr import from_torch_tensor
 from bodocache.integrations.sglang_adapter import SGLangBCacheAdapter
 from bodocache.integrations.sglang_glue import SGLangHook
-from bodocache.integrations.ptr import from_torch_tensor
 
 
 class SGLangRequestBuilder:
@@ -14,8 +14,8 @@ class SGLangRequestBuilder:
         self.page_bytes = page_bytes
         self.tenant = tenant
 
-    def build_requests(self, sglang_state: Any) -> List[KVRequest]:
-        requests: List[KVRequest] = []
+    def build_requests(self, sglang_state: Any) -> list[KVRequest]:
+        requests: list[KVRequest] = []
         now_ms = int(time.time() * 1000)
         for seq in getattr(sglang_state, "active_sequences", []):
             prefix_id = getattr(seq, "prefix_id", str(seq))
@@ -48,10 +48,10 @@ class SGLangRequestBuilder:
 
 
 def make_dest_resolver(kv_manager: Any):
-    def dest_resolver(info: Dict[str, Any]):
-        layer = info["layer"]
-        start_pid = info["start_pid"]
-        end_pid = info["end_pid"]
+    def dest_resolver(info: dict[str, Any]):
+        _layer = info["layer"]
+        _start_pid = info["start_pid"]
+        _end_pid = info["end_pid"]
         # tensor = kv_manager.get_tensor_slice(layer, start_pid, end_pid)
         tensor = None
         if tensor is None:
@@ -61,10 +61,11 @@ def make_dest_resolver(kv_manager: Any):
     return dest_resolver
 
 
-def make_hook(adapter: SGLangBCacheAdapter, builder: SGLangRequestBuilder, kv_manager: Any) -> SGLangHook:
+def make_hook(
+    adapter: SGLangBCacheAdapter, builder: SGLangRequestBuilder, kv_manager: Any
+) -> SGLangHook:
     return SGLangHook(
         adapter,
         build_requests=builder.build_requests,
         dest_resolver=make_dest_resolver(kv_manager),
     )
-
