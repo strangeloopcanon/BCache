@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Tuple
-
 import pandas as pd
 
 
-def selective_write_through(cand_df: pd.DataFrame, heat_df: pd.DataFrame, reuse_threshold: float = 10.0) -> pd.DataFrame:
+def selective_write_through(
+    cand_df: pd.DataFrame, heat_df: pd.DataFrame, reuse_threshold: float = 10.0
+) -> pd.DataFrame:
     """
     Decide which pages to persist (admission to STORAGE) using a simple reuse threshold
     on decay_hits. Returns DataFrame [page_key, tier_dst].
@@ -19,7 +19,9 @@ def selective_write_through(cand_df: pd.DataFrame, heat_df: pd.DataFrame, reuse_
     return admit
 
 
-def eviction_candidates(heat_df: pd.DataFrame, tier_state_df: pd.DataFrame, target_free_bytes: int = 0) -> pd.DataFrame:
+def eviction_candidates(
+    heat_df: pd.DataFrame, tier_state_df: pd.DataFrame, target_free_bytes: int = 0
+) -> pd.DataFrame:
     """
     Placeholder: evict coldest pages until target_free_bytes is achieved.
     Expects heat_df[page_key, decay_hits, size_bytes]. If size unknown, assume 256KB.
@@ -33,4 +35,3 @@ def eviction_candidates(heat_df: pd.DataFrame, tier_state_df: pd.DataFrame, targ
     df = df.sort_values("decay_hits", ascending=True)
     df["cum"] = df["size_bytes"].cumsum()
     return df[df["cum"] <= target_free_bytes][["page_key"]]
-

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Sequence, Union
+import contextlib
+from collections.abc import Callable, Sequence
+from typing import Any
 
-from .vllm_adapter import VLLMBCacheAdapter, PrefetchResult, ContextParallelSpec
-from .vllm_blocks import VLLMCacheConfig, build_requests_from_blocks
 from .config import KVOverrides, apply_kv_overrides
+from .vllm_adapter import ContextParallelSpec, PrefetchResult, VLLMBCacheAdapter
+from .vllm_blocks import VLLMCacheConfig, build_requests_from_blocks
 
-
-CollectBlocksFn = Callable[[Any], Dict[int, Sequence[int]]]
-DestResolverFn = Callable[[Dict[str, Any]], Any]
+CollectBlocksFn = Callable[[Any], dict[int, Sequence[int]]]
+DestResolverFn = Callable[[dict[str, Any]], Any]
 GetConfigFn = Callable[[Any], VLLMCacheConfig]
-ContextParallelResolver = Callable[[Any], Optional[ContextParallelSpec]]
+ContextParallelResolver = Callable[[Any], ContextParallelSpec | None]
 
 
 def _safe_get(obj: Any, path: Sequence[str], default: Any = None) -> Any:
@@ -47,17 +47,17 @@ def _derive_config(engine: Any) -> VLLMCacheConfig:
     )
 
     # Try typical vLLM locations for model config
-    mc = getattr(engine, "model_config", None) or _safe_get(engine, ("llm_engine", "model_config"), None)
+    mc = getattr(engine, "model_config", None) or _safe_get(
+        engine, ("llm_engine", "model_config"), None
+    )
     num_layers = _maybe_int(getattr(mc, "num_hidden_layers", None), 0)
 
     # num_kv_heads may be exposed via a method or attribute, else fall back
     num_kv_heads = 0
     if mc is not None:
         if hasattr(mc, "get_num_kv_heads"):
-            try:
+            with contextlib.suppress(Exception):
                 num_kv_heads = int(mc.get_num_kv_heads())
-            except Exception:
-                pass
         if num_kv_heads <= 0:
             num_kv_heads = _maybe_int(getattr(mc, "num_key_value_heads", None), 0)
         if num_kv_heads <= 0:
@@ -89,9 +89,11 @@ def _derive_config(engine: Any) -> VLLMCacheConfig:
 
 
 class VLLMIntegration:
-    """High-level integration that introspects vLLM engine configs and drives BCache prefetch.
+    """High-level integration that introspects vLLM engine configs and drives
+    BCache prefetch.
 
-    Flexible by design: you can override config detection, block collection, and destination resolution via callables.
+    Flexible by design: you can override config detection, block collection,
+    and destination resolution via callables.
     """
 
     def __init__(
@@ -100,12 +102,12 @@ class VLLMIntegration:
         adapter: VLLMBCacheAdapter,
         *,
         tenant: str = "default",
-        get_config: Optional[GetConfigFn] = None,
-        collect_blocks: Optional[CollectBlocksFn] = None,
-        dest_resolver: Optional[DestResolverFn] = None,
-        kv_overrides: Optional[KVOverrides | Dict[str, Any]] = None,
-        deadline_offset_ms: Optional[int] = None,
-        context_parallel: Optional[Union[ContextParallelSpec, ContextParallelResolver]] = None,
+        get_config: GetConfigFn | None = None,
+        collect_blocks: CollectBlocksFn | None = None,
+        dest_resolver: DestResolverFn | None = None,
+        kv_overrides: KVOverrides | dict[str, Any] | None = None,
+        deadline_offset_ms: int | None = None,
+        context_parallel: ContextParallelSpec | ContextParallelResolver | None = None,
     ) -> None:
         self.engine = engine
         self.adapter = adapter
@@ -118,7 +120,11 @@ class VLLMIntegration:
         self._context_parallel = context_parallel
 
     def _config(self) -> VLLMCacheConfig:
-        cfg = self._get_config(self.engine) if self._get_config is not None else _derive_config(self.engine)
+        cfg = (
+            self._get_config(self.engine)
+            if self._get_config is not None
+            else _derive_config(self.engine)
+        )
         return apply_kv_overrides(cfg, self._kv_overrides)
 
     def prefetch_step(
@@ -127,10 +133,10 @@ class VLLMIntegration:
         *,
         prefix_id: str,
         now_ms: int,
-        layer_lat_ms: Optional[Dict[int, float]] = None,
-        bandwidth_caps: Optional[Dict[int, int]] = None,
-        free_bytes: Optional[Dict[int, int]] = None,
-    ) -> Optional[PrefetchResult]:
+        layer_lat_ms: dict[int, float] | None = None,
+        bandwidth_caps: dict[int, int] | None = None,
+        free_bytes: dict[int, int] | None = None,
+    ) -> PrefetchResult | None:
         cfg = self._config()
         # Blocks per layer must be supplied; if not provided, bail early.
         if self._collect_blocks is None:
@@ -145,7 +151,11 @@ class VLLMIntegration:
             prefix_id=prefix_id,
             layer_to_blocks=layer_to_blocks,
             now_ms=now_ms,
-            deadline_offset_ms=int(self._deadline_offset_ms if self._deadline_offset_ms is not None else self.adapter.window_ms),
+            deadline_offset_ms=int(
+                self._deadline_offset_ms
+                if self._deadline_offset_ms is not None
+                else self.adapter.window_ms
+            ),
         )
         ctx_spec = self._resolve_context_parallel(state)
         return self.adapter.prefetch(
@@ -158,21 +168,19 @@ class VLLMIntegration:
             dest_resolver=self._dest_resolver,
         )
 
-    def _resolve_context_parallel(self, state: Any) -> Optional[ContextParallelSpec]:
+    def _resolve_context_parallel(self, state: Any) -> ContextParallelSpec | None:
         spec = None
         if self._context_parallel is not None:
             if callable(self._context_parallel):
-                try:
+                with contextlib.suppress(Exception):
                     spec = self._context_parallel(state)
-                except Exception:
-                    spec = None
             else:
                 spec = self._context_parallel
         if spec is None:
             spec = self._auto_context_parallel()
         return _coerce_context_parallel_spec(spec)
 
-    def _auto_context_parallel(self) -> Optional[ContextParallelSpec]:
+    def _auto_context_parallel(self) -> ContextParallelSpec | None:
         # Heuristics over engine attributes; returns None if world size <= 1 or unavailable.
         engine = self.engine
         world_size_paths = (
@@ -211,7 +219,7 @@ class VLLMIntegration:
         return ContextParallelSpec(world_size=int(ws), rank=int(rk) % int(ws))
 
 
-def _coerce_context_parallel_spec(obj: Any) -> Optional[ContextParallelSpec]:
+def _coerce_context_parallel_spec(obj: Any) -> ContextParallelSpec | None:
     if obj is None:
         return None
     if isinstance(obj, ContextParallelSpec):

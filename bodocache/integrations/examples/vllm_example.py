@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Example scaffolding for integrating BCache with vLLM.
 
@@ -7,13 +5,15 @@ This file intentionally avoids importing vLLM to keep the package lightweight.
 Copy and customize in your serving stack.
 """
 
-from typing import Any, Dict, List
+from __future__ import annotations
+
 import time
+from typing import Any
 
 from bodocache.integrations.base import KVRequest
+from bodocache.integrations.ptr import from_torch_tensor
 from bodocache.integrations.vllm_adapter import VLLMBCacheAdapter
 from bodocache.integrations.vllm_glue import VLLMHook
-from bodocache.integrations.ptr import from_torch_tensor
 
 
 class VLLMRequestBuilder:
@@ -27,10 +27,10 @@ class VLLMRequestBuilder:
         self.page_bytes = page_bytes
         self.tenant = tenant
 
-    def build_requests(self, vllm_state: Any) -> List[KVRequest]:
+    def build_requests(self, vllm_state: Any) -> list[KVRequest]:
         # Pseudocode: walk active sequences and collect required KV page ranges
         # Replace these with actual vLLM lookups.
-        requests: List[KVRequest] = []
+        requests: list[KVRequest] = []
         now_ms = int(time.time() * 1000)
         for seq in getattr(vllm_state, "active_sequences", []):
             prefix_id = getattr(seq, "prefix_id", str(seq))
@@ -70,10 +70,10 @@ def make_dest_resolver(kv_manager: Any):
     return a device pointer capsule for the destination memory region.
     """
 
-    def dest_resolver(info: Dict[str, Any]):
-        layer = info["layer"]
-        start_pid = info["start_pid"]
-        end_pid = info["end_pid"]
+    def dest_resolver(info: dict[str, Any]):
+        _layer = info["layer"]
+        _start_pid = info["start_pid"]
+        _end_pid = info["end_pid"]
         # tensor = kv_manager.get_tensor_slice(layer, start_pid, end_pid)
         tensor = None  # Replace with actual torch CUDA tensor
         if tensor is None:
@@ -89,4 +89,3 @@ def make_hook(adapter: VLLMBCacheAdapter, builder: VLLMRequestBuilder, kv_manage
         build_requests=builder.build_requests,
         dest_resolver=make_dest_resolver(kv_manager),
     )
-

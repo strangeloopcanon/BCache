@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from .base import KVRequest
 from .vllm_adapter import VLLMBCacheAdapter
 
-
 BuildRequestsFn = Callable[[Any], Sequence[KVRequest]]
-DestResolverFn = Callable[[Dict[str, Any]], Any]
-ReadyCallback = Callable[[Dict[str, Any]], None]
+DestResolverFn = Callable[[dict[str, Any]], Any]
+ReadyCallback = Callable[[dict[str, Any]], None]
 
 
 class VLLMHook:
@@ -24,11 +24,11 @@ class VLLMHook:
         adapter: VLLMBCacheAdapter,
         *,
         build_requests: BuildRequestsFn,
-        dest_resolver: Optional[DestResolverFn] = None,
-        on_ready: Optional[ReadyCallback] = None,
-        bandwidth_caps: Optional[dict[int, int]] = None,
-        free_bytes: Optional[dict[int, int]] = None,
-        layer_lat_ms: Optional[dict[int, float]] = None,
+        dest_resolver: DestResolverFn | None = None,
+        on_ready: ReadyCallback | None = None,
+        bandwidth_caps: dict[int, int] | None = None,
+        free_bytes: dict[int, int] | None = None,
+        layer_lat_ms: dict[int, float] | None = None,
     ) -> None:
         self.adapter = adapter
         self.build_requests = build_requests
@@ -49,4 +49,3 @@ class VLLMHook:
             on_ready=self.on_ready,
             dest_resolver=self.dest_resolver,
         )
-

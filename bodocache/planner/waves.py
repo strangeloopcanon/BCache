@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Tuple, TypedDict, Optional, NamedTuple, Sequence
-
 import math
+from collections.abc import Sequence
+from typing import NamedTuple, TypedDict
+
 import pandas as pd
 
 
@@ -16,15 +17,15 @@ class TMemLayout(TypedDict):
 class WaveSpec(TypedDict):
     """Runtime contract for a single execution wave."""
 
-    pack_order: List[int]
-    tile_order: List[Tuple[int, int]]
+    pack_order: list[int]
+    tile_order: list[tuple[int, int]]
     bm: int
     bn: int
     bk: int
-    cluster_shape: Tuple[int, int]
+    cluster_shape: tuple[int, int]
     tmem_layout: TMemLayout
-    io_extents: List[Tuple[str, int, int]]
-    swap_window: Tuple[int, int]
+    io_extents: list[tuple[str, int, int]]
+    swap_window: tuple[int, int]
 
 
 class TileConfig(NamedTuple):
@@ -32,11 +33,11 @@ class TileConfig(NamedTuple):
     bn: int
     bk: int
     stage: int
-    cluster: Tuple[int, int]
+    cluster: tuple[int, int]
 
 
 # A curated whitelist of tiles mirrored by bw-runtime. Update in lock-step with runtime.
-DEFAULT_TILE_CONFIGS: Tuple[TileConfig, ...] = (
+DEFAULT_TILE_CONFIGS: tuple[TileConfig, ...] = (
     TileConfig(128, 128, 64, 2, (2, 1)),
     TileConfig(128, 256, 64, 2, (2, 1)),
     TileConfig(256, 128, 64, 2, (2, 1)),
@@ -44,7 +45,7 @@ DEFAULT_TILE_CONFIGS: Tuple[TileConfig, ...] = (
 )
 
 
-def _resolve_whitelist(whitelist: Optional[Sequence[TileConfig]]) -> Tuple[TileConfig, ...]:
+def _resolve_whitelist(whitelist: Sequence[TileConfig] | None) -> tuple[TileConfig, ...]:
     if whitelist and len(whitelist):
         return tuple(whitelist)
     return DEFAULT_TILE_CONFIGS
@@ -83,9 +84,9 @@ def _ensure_tile_whitelist(
 def _select_tile_config(
     dtype: str,
     *,
-    shapes: Optional[List[Tuple[int, int, int]]] = None,
-    whitelist: Optional[Sequence[TileConfig]] = None,
-    default_cluster: Tuple[int, int] = (2, 1),
+    shapes: list[tuple[int, int, int]] | None = None,
+    whitelist: Sequence[TileConfig] | None = None,
+    default_cluster: tuple[int, int] = (2, 1),
     default_stage: int = 2,
 ) -> TileConfig:
     """Pick a tile configuration for the wave respecting the whitelist contract."""
@@ -95,7 +96,13 @@ def _select_tile_config(
 
     if shapes:
         converted = tuple(
-            TileConfig(int(bm), int(bn), int(bk), int(default_stage), (int(default_cluster[0]), int(default_cluster[1])))
+            TileConfig(
+                int(bm),
+                int(bn),
+                int(bk),
+                int(default_stage),
+                (int(default_cluster[0]), int(default_cluster[1])),
+            )
             for bm, bn, bk in shapes
         )
         return _ensure_tile_whitelist(dtype, converted)
@@ -107,7 +114,7 @@ def validate_wave_spec(
     spec: WaveSpec,
     *,
     dtype: str = "float16",
-    whitelist: Optional[Sequence[TileConfig]] = None,
+    whitelist: Sequence[TileConfig] | None = None,
 ) -> None:
     """Raise ValueError if the wave spec violates the runtime contract."""
 
@@ -164,14 +171,12 @@ def validate_wave_spec(
 
     sb, se = spec["swap_window"]
     if int(sb) < 0 or int(se) <= int(sb):
-        raise ValueError(
-            f"Invalid swap window ({sb}, {se}); must satisfy 0 <= begin < end"
-        )
+        raise ValueError(f"Invalid swap window ({sb}, {se}); must satisfy 0 <= begin < end")
 
 
-def _build_swizzle(rows: int, cols: int) -> List[Tuple[int, int]]:
+def _build_swizzle(rows: int, cols: int) -> list[tuple[int, int]]:
     """Simple 2D swizzle: row-major with odd-row reversal (snake)."""
-    order: List[Tuple[int, int]] = []
+    order: list[tuple[int, int]] = []
     for r in range(rows):
         if r % 2 == 0:
             for c in range(cols):
@@ -182,7 +187,7 @@ def _build_swizzle(rows: int, cols: int) -> List[Tuple[int, int]]:
     return order
 
 
-def _factorize_req_ids(req_col: pd.Series) -> List[int]:
+def _factorize_req_ids(req_col: pd.Series) -> list[int]:
     try:
         return [int(x) for x in req_col.tolist()]
     except Exception:
@@ -196,10 +201,10 @@ def build_wave_specs(
     *,
     window_ms: int,
     dtype: str = "float16",
-    shapes: Optional[List[Tuple[int, int, int]]] = None,
-    default_cluster: Tuple[int, int] = (2, 1),
-    tile_configs: Optional[Sequence[TileConfig]] = None,
-) -> List[WaveSpec]:
+    shapes: list[tuple[int, int, int]] | None = None,
+    default_cluster: tuple[int, int] = (2, 1),
+    tile_configs: Sequence[TileConfig] | None = None,
+) -> list[WaveSpec]:
     """Derive one WaveSpec per (node, tier_dst) group from a plan.
 
     - pack_order favors grouping by pcluster then earliest deadlines
@@ -223,11 +228,11 @@ def build_wave_specs(
         "double_buffer": True,
         "stage_n": int(cfg.stage),
     }
-    waves: List[WaveSpec] = []
+    waves: list[WaveSpec] = []
     by = [c for c in ["node", "tier_dst"] if c in plan_df.columns]
-    for _, g in (plan_df.groupby(by, sort=False) if by else [(None, plan_df)]):
+    for _, g in plan_df.groupby(by, sort=False) if by else [(None, plan_df)]:
         # io_extents: one per planned coalesced op
-        io_extents: List[Tuple[str, int, int]] = []
+        io_extents: list[tuple[str, int, int]] = []
         for r in g.itertuples(index=False):
             layer = int(getattr(r, "layer", 0))
             start_pid = int(getattr(r, "start_pid", 0))

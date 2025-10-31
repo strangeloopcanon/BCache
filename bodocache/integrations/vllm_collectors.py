@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence
+import contextlib
+from typing import Any
 
 from .ptr import from_torch_tensor
 
@@ -13,7 +14,7 @@ def make_vllm_collector(engine: Any):
 
     bm = getattr(engine, "block_manager", None) or getattr(engine, "cache_engine", None)
 
-    def collector(state: Any) -> Dict[int, List[int]]:
+    def collector(state: Any) -> dict[int, list[int]]:
         # Preferred engine APIs
         if bm is not None:
             for name in ("next_required_blocks", "get_required_blocks", "collect_required_blocks"):
@@ -45,7 +46,7 @@ def make_vllm_dest_resolver(kv_manager: Any):
 
     def _as_ptr(obj: Any) -> Any:
         # torch tensor
-        if hasattr(obj, "data_ptr") and callable(getattr(obj, "data_ptr")):
+        if hasattr(obj, "data_ptr") and callable(obj.data_ptr):
             return from_torch_tensor(obj)
         # raw int pointer
         try:
@@ -53,7 +54,7 @@ def make_vllm_dest_resolver(kv_manager: Any):
         except Exception:
             return None
 
-    def resolver(info: Dict[str, Any]):
+    def resolver(info: dict[str, Any]):
         layer = int(info["layer"])
         start = int(info["start_pid"])
         end = int(info["end_pid"])
@@ -71,14 +72,11 @@ def make_vllm_dest_resolver(kv_manager: Any):
                 if ptr is not None:
                     return ptr
         # Try mapping access
-        try:
+        with contextlib.suppress(Exception):
             t = kv_manager[(layer, start, end)]
             ptr = _as_ptr(t)
             if ptr is not None:
                 return ptr
-        except Exception:
-            pass
         return None
 
     return resolver
-

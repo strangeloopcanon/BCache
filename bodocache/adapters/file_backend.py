@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Optional
 
 from ..planner.models import PageKey
 
@@ -23,7 +21,7 @@ class FileBackend:
     def exists(self, key: PageKey) -> bool:
         return self._path(key).exists()
 
-    def get(self, key: PageKey) -> Optional[bytes]:
+    def get(self, key: PageKey) -> bytes | None:
         p = self._path(key)
         try:
             return p.read_bytes()
@@ -34,4 +32,3 @@ class FileBackend:
         p = self._path(key)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(value)
-

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from bodocache.integrations.vllm_blocks import VLLMCacheConfig, build_requests_from_blocks, coalesce_blocks
+from bodocache.integrations.vllm_blocks import (
+    VLLMCacheConfig,
+    build_requests_from_blocks,
+    coalesce_blocks,
+)
 
 
 def test_coalesce_blocks():
@@ -10,7 +14,9 @@ def test_coalesce_blocks():
 
 
 def test_build_requests_from_blocks():
-    cfg = VLLMCacheConfig(block_size=16, num_layers=2, num_kv_heads=8, head_size=64, kv_dtype="float16")
+    cfg = VLLMCacheConfig(
+        block_size=16, num_layers=2, num_kv_heads=8, head_size=64, kv_dtype="float16"
+    )
     now_ms = 1000
     reqs = build_requests_from_blocks(
         cfg,
@@ -29,4 +35,3 @@ def test_build_requests_from_blocks():
     for r in reqs:
         assert r.page_bytes == pbytes
         assert r.deadline_ms == now_ms + 20
-

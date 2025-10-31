@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Iterable, List
-
 import numpy as np
 import pandas as pd
 
@@ -21,8 +19,8 @@ except Exception:  # pragma: no cover - fallback path
 
 
 def hash_bucket(s: str, buckets: int = 64) -> int:
-    d = _blake_digest(s.encode('utf-8'))
-    return int.from_bytes(d[:4], 'little') % max(1, buckets)
+    d = _blake_digest(s.encode("utf-8"))
+    return int.from_bytes(d[:4], "little") % max(1, buckets)
 
 
 def assign_pclusters(df: pd.DataFrame, buckets: int = 64) -> pd.DataFrame:
@@ -31,10 +29,12 @@ def assign_pclusters(df: pd.DataFrame, buckets: int = 64) -> pd.DataFrame:
     This is a placeholder for near-duplicate (minhash/LSH) clustering. It produces stable
     numeric clusters using a fast hash so the Bodo JIT hot path can group by `pcluster`.
     """
-    if 'prefix_id' not in df.columns:
-        raise KeyError('prefix_id column required')
+    if "prefix_id" not in df.columns:
+        raise KeyError("prefix_id column required")
     out = df.copy()
-    out['pcluster'] = out['prefix_id'].apply(lambda s: hash_bucket(str(s), buckets)).astype(np.int64)
+    out["pcluster"] = (
+        out["prefix_id"].apply(lambda s: hash_bucket(str(s), buckets)).astype(np.int64)
+    )
     return out
 
 
@@ -42,13 +42,13 @@ def _k_shingles(s: str, k: int = 5):
     s = str(s)
     if len(s) <= k:
         return [s]
-    return [s[i:i+k] for i in range(len(s) - k + 1)]
+    return [s[i : i + k] for i in range(len(s) - k + 1)]
 
 
 def _hash_with_seed(x: str, seed: int) -> int:
     # Mix seed in first 4 bytes for simple families
-    h = _blake_digest((str(seed) + '|' + x).encode('utf-8'))
-    return int.from_bytes(h[:4], 'little') & 0x7FFFFFFF
+    h = _blake_digest((str(seed) + "|" + x).encode("utf-8"))
+    return int.from_bytes(h[:4], "little") & 0x7FFFFFFF
 
 
 def assign_pclusters_minhash(
@@ -65,60 +65,62 @@ def assign_pclusters_minhash(
     Returns a copy of df with an added int64 column 'pcluster'.
     """
     if num_hashes % bands != 0:
-        raise ValueError('num_hashes must be divisible by bands')
-    use_tokens = 'prefix_tokens' in df.columns
-    rows: List[int] = []
+        raise ValueError("num_hashes must be divisible by bands")
+    use_tokens = "prefix_tokens" in df.columns
+    rows: list[int] = []
     r = num_hashes // bands
     seeds = list(range(num_hashes))
 
     if use_tokens:
         # Token-level: build k-grams from integer token ids
-        token_seqs: List[List[int]] = df['prefix_tokens'].tolist()
+        token_seqs: list[list[int]] = df["prefix_tokens"].tolist()
         for toks in token_seqs:
             toks = list(map(int, toks)) if toks is not None else []
             if len(toks) < k:
                 grams = [tuple(toks)] if toks else []
             else:
-                grams = [tuple(toks[i:i+k]) for i in range(len(toks) - k + 1)]
-            sig: List[int] = []
+                grams = [tuple(toks[i : i + k]) for i in range(len(toks) - k + 1)]
+            sig: list[int] = []
             for seed in seeds:
                 # hash each gram with seed, take min
                 vals = []
                 for g in grams:
                     # Mix seed and ints into bytes deterministically
-                    b = seed.to_bytes(4, 'little') + b''.join(int(x).to_bytes(4, 'little', signed=False) for x in g)
+                    b = seed.to_bytes(4, "little") + b"".join(
+                        int(x).to_bytes(4, "little", signed=False) for x in g
+                    )
                     h = _blake_digest(b)[:4]
-                    vals.append(int.from_bytes(h, 'little') & 0x7FFFFFFF)
+                    vals.append(int.from_bytes(h, "little") & 0x7FFFFFFF)
                 sig.append(min(vals) if vals else 0)
-            band_keys: List[int] = []
+            band_keys: list[int] = []
             for bidx in range(bands):
                 start = bidx * r
                 end = start + r
                 chunk = tuple(sig[start:end])
-                band_h = _blake_digest(str(chunk).encode('utf-8'))[:4]
-                band_keys.append(int.from_bytes(band_h, 'little'))
-            combo = _blake_digest(b''.join(int(x).to_bytes(4, 'little') for x in band_keys))[:4]
-            rows.append(int.from_bytes(combo, 'little'))
+                band_h = _blake_digest(str(chunk).encode("utf-8"))[:4]
+                band_keys.append(int.from_bytes(band_h, "little"))
+            combo = _blake_digest(b"".join(int(x).to_bytes(4, "little") for x in band_keys))[:4]
+            rows.append(int.from_bytes(combo, "little"))
     else:
-        if 'prefix_id' not in df.columns:
-            raise KeyError('prefix_tokens or prefix_id column required')
-        for s in df['prefix_id'].astype(str).tolist():
+        if "prefix_id" not in df.columns:
+            raise KeyError("prefix_tokens or prefix_id column required")
+        for s in df["prefix_id"].astype(str).tolist():
             shingles = _k_shingles(s, k=k)
-            sig: List[int] = []
+            sig: list[int] = []
             for seed in seeds:
                 vals = [_hash_with_seed(sh, seed) for sh in shingles]
                 sig.append(min(vals) if vals else 0)
-            band_keys: List[int] = []
+            band_keys: list[int] = []
             for bidx in range(bands):
                 start = bidx * r
                 end = start + r
                 chunk = tuple(sig[start:end])
-                band_h = _blake_digest(str(chunk).encode('utf-8'))[:4]
-                band_keys.append(int.from_bytes(band_h, 'little'))
-            combo = _blake_digest(b''.join(int(x).to_bytes(4, 'little') for x in band_keys))[:4]
-            rows.append(int.from_bytes(combo, 'little'))
+                band_h = _blake_digest(str(chunk).encode("utf-8"))[:4]
+                band_keys.append(int.from_bytes(band_h, "little"))
+            combo = _blake_digest(b"".join(int(x).to_bytes(4, "little") for x in band_keys))[:4]
+            rows.append(int.from_bytes(combo, "little"))
 
     out = df.copy()
     codes, _ = pd.factorize(pd.Series(rows), sort=False)
-    out['pcluster'] = pd.Series(codes).astype(np.int64)
+    out["pcluster"] = pd.Series(codes).astype(np.int64)
     return out

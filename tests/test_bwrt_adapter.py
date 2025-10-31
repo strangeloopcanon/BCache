@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import importlib
 from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
-
 from bodocache.adapters import bwrt_adapter
 
 
@@ -22,8 +22,8 @@ def test_bwrt_adapter_ctypes_path(monkeypatch):
     class _StubRuntime:
         def __init__(self, device_index: int = 0) -> None:
             self.device_index = device_index
-            self.submissions = []
-            self.waits = []
+            self.submissions: list[tuple[dict[str, object], object, object, object]] = []
+            self.waits: list[tuple[object, int | None]] = []
             self.last_weight = None
 
         def submit_wave(self, spec, a_ptr, b_ptr, c_ptr):
@@ -59,7 +59,7 @@ def test_bwrt_adapter_ctypes_path(monkeypatch):
     }
     metrics = adapter.submit_and_wait(spec, 1, 2, 3)
     assert metrics == {"ok": True}
-    runtime = adapter._runtime  # type: ignore[attr-defined]
+    runtime = cast(Any, adapter)._runtime
     assert runtime.device_index == 3
     assert runtime.submissions[0][0]["bm"] == 128
     adapter.set_weights(99)

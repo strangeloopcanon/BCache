@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, List
+from collections.abc import Iterable
 
 # Optional blake3 with fallback for environments without the library
 try:  # pragma: no cover - trivial import/fallback
@@ -24,7 +24,7 @@ def prefix_id(token_ids: Iterable[int], P: int = 128) -> str:
     return _blake_digest(bytes(buf)).hex()
 
 
-def minhash_bucket(ngrams: List[int], bands: int = 16, rows: int = 4) -> int:
+def minhash_bucket(ngrams: list[int], bands: int = 16, rows: int = 4) -> int:
     """Very simple minhash bucket placeholder for near-duplicate prefix grouping."""
     # Not a true minhash; replace with proper LSH in production.
     h = _blake_digest(bytes(ngrams))

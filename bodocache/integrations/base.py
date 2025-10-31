@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from pydantic import BaseModel, Field, field_validator
 
-import numpy as np
-import pandas as pd
+from bodocache.planner.api import (
+    LayerLatency,
+    PlannerRequest,
+    PlannerWindow,
+    TenantCapacity,
+    TierCapacity,
+)
 
 
-@dataclass
-class KVRequest:
+class KVRequest(BaseModel):
     """A single KV page interval request originating from an engine.
 
     All fields map directly to columns expected by the planner scheduler.
@@ -22,137 +25,112 @@ class KVRequest:
     layer: int
     page_start: int
     page_end: int
-    page_bytes: int = 256 * 1024
+    page_bytes: int = Field(default=256 * 1024, ge=0)
     tenant: str = "default"
-    est_fill_ms: float = 1.0
+    est_fill_ms: float = Field(default=1.0, ge=0.0)
     tier_src: int = 0  # storage
     tier_dst: int = 2  # gpu
     deadline_ms: int = 0
+    prefix_tokens: list[int] | None = None
+    route_hint: str | None = None
+    pcluster: int | None = None
+
+    @field_validator("layer", "page_start", "page_end", "tier_src", "tier_dst")
+    @classmethod
+    def _non_negative(cls, value: int) -> int:
+        if int(value) < 0:
+            raise ValueError("numeric fields must be non-negative")
+        return int(value)
+
+    def as_planner_request(self) -> PlannerRequest:
+        return PlannerRequest(
+            req_id=self.req_id,
+            node=self.node,
+            model_id=self.model_id,
+            model_version=self.model_version,
+            prefix_id=self.prefix_id,
+            layer=self.layer,
+            page_start=self.page_start,
+            page_end=self.page_end,
+            page_bytes=self.page_bytes,
+            tenant=self.tenant,
+            est_fill_ms=self.est_fill_ms,
+            tier_src=self.tier_src,
+            tier_dst=self.tier_dst,
+            deadline_ms=self.deadline_ms,
+            prefix_tokens=self.prefix_tokens,
+            route_hint=self.route_hint,
+            pcluster=self.pcluster,
+        )
 
 
-@dataclass
-class PlannerInputs:
+class PlannerInputs(BaseModel):
     """Planner side inputs for a single planning window."""
 
-    requests: List[KVRequest]
+    requests: list[KVRequest]
     window_ms: int = 20
     now_ms: int = 0
     # Per-tier capacities: bytes per window and free bytes; indices by tier id
-    bandwidth_caps: Optional[dict[int, int]] = None
-    free_bytes: Optional[dict[int, int]] = None
+    bandwidth_caps: dict[int, int] | None = None
+    free_bytes: dict[int, int] | None = None
     # Per-tenant bandwidth caps (bytes per window) per tier
-    tenant_caps: Optional[List[tuple[str, int, int]]] = None  # (tenant, tier, cap)
+    tenant_caps: list[tuple[str, int, int]] | None = None  # (tenant, tier, cap)
     # Per-layer latencies (ms)
-    layer_lat_ms: Optional[dict[int, float]] = None
+    layer_lat_ms: dict[int, float] | None = None
 
+    def _default_bandwidth_caps(self) -> dict[int, int]:
+        return {0: 60 * 1024 * 1024, 1: 200 * 1024 * 1024, 2: 500 * 1024 * 1024}
 
-def _default_bandwidth_caps(window_ms: int) -> dict[int, int]:
-    # Approximate bytes-per-window caps (20ms) for tiers: STORAGE=0, CPU=1, GPU=2
-    # GPU: ~25 GB/s -> ~500 MB per 20ms window
-    # CPU: ~10 GB/s -> ~200 MB per 20ms window
-    # STORAGE: ~3 GB/s -> ~60 MB per 20ms window (coalesced reads)
-    return {0: 60 * 1024 * 1024, 1: 200 * 1024 * 1024, 2: 500 * 1024 * 1024}
+    def _tier_caps(self) -> list[TierCapacity]:
+        bw_caps = self.bandwidth_caps or self._default_bandwidth_caps()
+        free = self.free_bytes or {0: 1 << 60, 1: 1 << 60, 2: 1 << 60}
+        tiers = sorted(set((0, 1, 2)) | set(bw_caps.keys()) | set(free.keys()))
+        return [
+            TierCapacity(
+                tier=int(tier),
+                bandwidth_caps=int(bw_caps.get(tier, 0)),
+                free_bytes=int(free.get(tier, 1 << 60)),
+            )
+            for tier in tiers
+        ]
+
+    def _tenant_caps(self) -> list[TenantCapacity]:
+        if self.tenant_caps:
+            return [
+                TenantCapacity(tenant=str(t), tier=int(tier), bandwidth_caps=int(cap))
+                for (t, tier, cap) in self.tenant_caps
+            ]
+        tenants = {req.tenant for req in self.requests}
+        return [
+            TenantCapacity(tenant=tenant, tier=tier, bandwidth_caps=1 << 60)
+            for tenant in tenants
+            for tier in (0, 1, 2)
+        ]
+
+    def _layer_latencies(self) -> list[LayerLatency]:
+        if self.layer_lat_ms:
+            return [
+                LayerLatency(layer=int(layer), lat_ms=float(value))
+                for layer, value in sorted(self.layer_lat_ms.items())
+            ]
+        layers = sorted({req.layer for req in self.requests})
+        return [LayerLatency(layer=layer, lat_ms=1.0) for layer in layers]
+
+    def to_planner_window(self) -> PlannerWindow:
+        planner_requests = [req.as_planner_request() for req in self.requests]
+        tier_caps = self._tier_caps()
+        tenant_caps = self._tenant_caps()
+        layer_lat = self._layer_latencies()
+        return PlannerWindow(
+            requests=planner_requests,
+            now_ms=int(self.now_ms),
+            tier_caps=tier_caps,
+            tenant_caps=tenant_caps,
+            layer_latencies=layer_lat,
+        )
 
 
 def build_dataframes(pi: PlannerInputs):
     """Construct the DataFrames required by scheduler.run_window from inputs."""
-    if not pi.requests:
-        # Empty frames with correct columns
-        cols_req = [
-            "req_id",
-            "node",
-            "model_id",
-            "model_version",
-            "prefix_id",
-            "layer",
-            "page_start",
-            "page_end",
-            "tier_src",
-            "tier_dst",
-            "deadline_ms",
-            "page_bytes",
-            "tenant",
-            "est_fill_ms",
-        ]
-        empty = pd.DataFrame(columns=cols_req)
-        heat = pd.DataFrame(columns=["layer", "page_id", "decay_hits", "tenant_weight", "size_bytes"])
-        caps = pd.DataFrame(columns=["tier", "bandwidth_caps", "free_bytes"])
-        tcaps = pd.DataFrame(columns=["tenant", "tier", "bandwidth_caps"])
-        ll = pd.DataFrame(columns=["layer", "lat_ms"])
-        return empty, heat, caps, tcaps, ll
-
-    # requests_df
-    rows = [
-        (
-            r.req_id,
-            r.node,
-            r.model_id,
-            r.model_version,
-            r.prefix_id,
-            int(r.layer),
-            int(r.page_start),
-            int(r.page_end),
-            int(r.tier_src),
-            int(r.tier_dst),
-            int(r.deadline_ms),
-            int(r.page_bytes),
-            r.tenant,
-            float(r.est_fill_ms),
-        )
-        for r in pi.requests
-    ]
-    requests_df = pd.DataFrame(
-        rows,
-        columns=[
-            "req_id",
-            "node",
-            "model_id",
-            "model_version",
-            "prefix_id",
-            "layer",
-            "page_start",
-            "page_end",
-            "tier_src",
-            "tier_dst",
-            "deadline_ms",
-            "page_bytes",
-            "tenant",
-            "est_fill_ms",
-        ],
-    )
-
-    # heat_df: default decay_hits=1, tenant_weight=1.0, size_bytes=page_bytes
-    heat_df = requests_df[["layer", "page_start", "page_bytes"]].copy()
-    heat_df = heat_df.rename(columns={"page_start": "page_id", "page_bytes": "size_bytes"})
-    heat_df["decay_hits"] = np.int64(1)
-    heat_df["tenant_weight"] = np.float64(1.0)
-    heat_df = heat_df.groupby(["layer", "page_id"], as_index=False).agg(
-        decay_hits=("decay_hits", "sum"), tenant_weight=("tenant_weight", "first"), size_bytes=("size_bytes", "max")
-    )
-
-    # tier_caps_df
-    bw_caps = pi.bandwidth_caps or _default_bandwidth_caps(pi.window_ms)
-    free = pi.free_bytes or {0: 1 << 60, 1: 1 << 60, 2: 1 << 60}
-    caps_rows = [
-        (tier, int(bw_caps.get(tier, 0)), int(free.get(tier, 1 << 60))) for tier in sorted(set([0, 1, 2]).union(bw_caps.keys()).union(free.keys()))
-    ]
-    tier_caps_df = pd.DataFrame(caps_rows, columns=["tier", "bandwidth_caps", "free_bytes"])
-
-    # tenant_caps_df: if not provided, set very large caps
-    if pi.tenant_caps:
-        trows = [(t, int(tier), int(cap)) for (t, tier, cap) in pi.tenant_caps]
-    else:
-        tenants = requests_df["tenant"].unique().tolist()
-        trows = [(t, int(tier), int(1 << 60)) for t in tenants for tier in [0, 1, 2]]
-    tenant_caps_df = pd.DataFrame(trows, columns=["tenant", "tier", "bandwidth_caps"])
-
-    # layer_lat_df
-    if pi.layer_lat_ms:
-        lrows = [(int(k), float(v)) for k, v in sorted(pi.layer_lat_ms.items())]
-    else:
-        layers = requests_df["layer"].unique().tolist()
-        lrows = [(int(ly), 1.0) for ly in layers]
-    layer_lat_df = pd.DataFrame(lrows, columns=["layer", "lat_ms"])
-
-    return requests_df, heat_df, tier_caps_df, tenant_caps_df, layer_lat_df
-
+    window = pi.to_planner_window()
+    return window.to_dataframes()

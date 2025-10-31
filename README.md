@@ -162,6 +162,30 @@ For more advanced tuning, you can use the replay tuner to find the optimal polic
 python -m scripts.replay_tuner
 ```
 
+## Development Workflow
+
+BCache exposes a Makefile that implements the interface contract described in `AGENTS.md`.
+Common commands:
+
+```bash
+make setup       # create/refresh the local venv and install dev dependencies
+make check       # black/ruff/mypy/bandit/detect-secrets
+make test        # pytest with coverage
+make llm-live    # executes LLM golden tests when present (no-op otherwise)
+make deps-audit  # pip-audit advisory scan
+make all         # runs the full contract: check → test → llm-live → deps-audit
+```
+
+All command invocations respect the repo-managed virtual environment, so there is
+no need to activate it manually.
+
+### Planner API (for integrations)
+
+High-level callers should use the typed planner interface in
+`bodocache/planner/api.py`. It provides Pydantic models for requests and results
+and exposes a `plan_window(...)` helper. The vLLM and SGLang integrations, along
+with the simulator CLI, already demonstrate the recommended usage pattern.
+
 This will sweep through various parameter combinations and print the best-performing configurations, which it also saves to `configs/staged.yaml`.
 
 ### Testing

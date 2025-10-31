@@ -3,22 +3,99 @@ from __future__ import annotations
 import time
 
 import pandas as pd
-
-from bodocache.planner.scheduler import run_window
 import pytest
-
+from bodocache.planner.api import (
+    HeatEntry,
+    LayerLatency,
+    PlannerConfig,
+    PlannerRequest,
+    PlannerWindow,
+    TenantCapacity,
+    TierCapacity,
+    plan_window,
+)
+from bodocache.planner.models import DEFAULT_PAGE_BYTES
 from bodocache.planner.waves import (
     TileConfig,
     build_wave_specs,
     validate_wave_spec,
 )
 from bodocache.sim.utils import (
-    synthetic_requests,
     synthetic_heat,
-    synthetic_tier_caps,
-    synthetic_tenant_caps,
     synthetic_layer_lat,
+    synthetic_requests,
+    synthetic_tenant_caps,
+    synthetic_tier_caps,
 )
+
+
+def _window_from_frames(
+    req: pd.DataFrame,
+    heat: pd.DataFrame,
+    tiers: pd.DataFrame,
+    tenant_caps: pd.DataFrame,
+    lats: pd.DataFrame,
+    now_ms: int,
+) -> PlannerWindow:
+    requests_payload = [
+        PlannerRequest(
+            req_id=str(row["req_id"]),
+            node=str(row["node"]),
+            model_id=str(row["model_id"]),
+            model_version=str(row["model_version"]),
+            prefix_id=str(row["prefix_id"]),
+            layer=int(row["layer"]),
+            page_start=int(row["page_start"]),
+            page_end=int(row["page_end"]),
+            tier_src=int(row["tier_src"]),
+            tier_dst=int(row["tier_dst"]),
+            deadline_ms=int(row["deadline_ms"]),
+            page_bytes=int(row["page_bytes"]),
+            tenant=str(row["tenant"]),
+            est_fill_ms=float(row["est_fill_ms"]),
+            prefix_tokens=list(row.get("prefix_tokens", []) or []),
+            pcluster=int(row.get("pcluster", -1)),
+        )
+        for row in req.to_dict(orient="records")
+    ]
+    heat_entries = [
+        HeatEntry(
+            layer=int(row["layer"]),
+            page_id=int(row["page_id"]),
+            decay_hits=int(row["decay_hits"]),
+            tenant_weight=float(row["tenant_weight"]),
+            size_bytes=int(row.get("size_bytes", DEFAULT_PAGE_BYTES)),
+        )
+        for row in heat.to_dict(orient="records")
+    ]
+    tier_entries = [
+        TierCapacity(
+            tier=int(row["tier"]),
+            bandwidth_caps=int(row["bandwidth_caps"]),
+            free_bytes=int(row["free_bytes"]),
+        )
+        for row in tiers.to_dict(orient="records")
+    ]
+    tenant_entries = [
+        TenantCapacity(
+            tenant=str(row["tenant"]),
+            tier=int(row["tier"]),
+            bandwidth_caps=int(row["bandwidth_caps"]),
+        )
+        for row in tenant_caps.to_dict(orient="records")
+    ]
+    lat_entries = [
+        LayerLatency(layer=int(row["layer"]), lat_ms=float(row["lat_ms"]))
+        for row in lats.to_dict(orient="records")
+    ]
+    return PlannerWindow(
+        requests=requests_payload,
+        now_ms=int(now_ms),
+        heat=heat_entries,
+        tier_caps=tier_entries,
+        tenant_caps=tenant_entries,
+        layer_latencies=lat_entries,
+    )
 
 
 def test_build_wave_specs_basic():
@@ -27,21 +104,20 @@ def test_build_wave_specs_basic():
     heat = synthetic_heat(req)
     tiers = synthetic_tier_caps()
     lats = synthetic_layer_lat(n_layers=4)
-    tenant_caps = synthetic_tenant_caps(req['tenant'], 1 << 60)
+    tenant_caps = synthetic_tenant_caps(req["tenant"], 1 << 60)
 
-    plan_df, _, _ = run_window(
-        req,
-        heat,
-        tiers,
-        tenant_caps,
-        lats,
-        now_ms,
-        pmin=0.0,
-        umin=-1.0,
-        min_io_bytes=0,
-        window_ms=20,
-        max_ops_per_tier=16,
+    window = _window_from_frames(req, heat, tiers, tenant_caps, lats, now_ms)
+    result = plan_window(
+        window,
+        PlannerConfig(
+            pmin=0.0,
+            umin=-1.0,
+            min_io_bytes=0,
+            window_ms=20,
+            max_ops_per_tier=16,
+        ),
     )
+    plan_df, _, _ = result.as_dataframes()
 
     waves = build_wave_specs(plan_df, req, window_ms=20, dtype="float16")
     assert isinstance(waves, list)
@@ -122,15 +198,17 @@ def test_validate_wave_spec_swap_window():
 
 
 def test_build_wave_specs_rejects_non_granular_shape():
-    plan_df = pd.DataFrame([
-        {
-            "node": "n0",
-            "tier_dst": 1,
-            "layer": 0,
-            "start_pid": 0,
-            "end_pid": 1,
-            "page_bytes": 256 * 1024,
-        }
-    ])
+    plan_df = pd.DataFrame(
+        [
+            {
+                "node": "n0",
+                "tier_dst": 1,
+                "layer": 0,
+                "start_pid": 0,
+                "end_pid": 1,
+                "page_bytes": 256 * 1024,
+            }
+        ]
+    )
     with pytest.raises(ValueError):
         build_wave_specs(plan_df, pd.DataFrame(), window_ms=20, shapes=[(64, 64, 33)])

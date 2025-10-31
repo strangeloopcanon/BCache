@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import time
-from typing import Callable, Dict, Any, Optional
+from collections.abc import Callable
+from typing import Any
 
 import pandas as pd
 
 from bodocache.adapters.segmented_file_backend import SegmentedFileBackend
+
 from .copy_engine import AbstractCopyEngine, CopyOp, get_copy_engine
 
 
@@ -19,7 +21,7 @@ class NodeAgent:
         self,
         backend: SegmentedFileBackend,
         page_bytes: int = 256 * 1024,
-        copy_engine: Optional[AbstractCopyEngine] = None,
+        copy_engine: AbstractCopyEngine | None = None,
     ):
         self.backend = backend
         self.page_bytes = page_bytes
@@ -31,10 +33,10 @@ class NodeAgent:
         plan_df: pd.DataFrame,
         model_id: str,
         model_version: str,
-        on_ready: Optional[Callable[[Dict[str, Any]], None]] = None,
-        dest_resolver: Optional[Callable[[Dict[str, Any]], Any]] = None,
+        on_ready: Callable[[dict[str, Any]], None] | None = None,
+        dest_resolver: Callable[[dict[str, Any]], Any] | None = None,
         prefer_native_engine: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if plan_df.empty:
             return {"ops": 0, "bytes": 0, "duration_ms": 0.0}
         t0 = time.time()
@@ -55,14 +57,20 @@ class NodeAgent:
                 # Try to lazily load a native engine if requested and not provided.
                 self.copy_engine = get_copy_engine(prefer_native=prefer_native_engine)
 
-            dst = dest_resolver({
-                "node": getattr(r, "node", ""),
-                "layer": layer,
-                "start_pid": start_pid,
-                "end_pid": end_pid,
-                "bytes": nbytes,
-                "route_hint": route_hint,
-            }) if dest_resolver is not None else None
+            dst = (
+                dest_resolver(
+                    {
+                        "node": getattr(r, "node", ""),
+                        "layer": layer,
+                        "start_pid": start_pid,
+                        "end_pid": end_pid,
+                        "bytes": nbytes,
+                        "route_hint": route_hint,
+                    }
+                )
+                if dest_resolver is not None
+                else None
+            )
 
             if self.copy_engine is not None and dst is not None:
                 # Use pinned buffer path if supported by the engine
@@ -91,7 +99,9 @@ class NodeAgent:
                         bytes=nbytes,
                         stream_id=int(getattr(r, "overlap", 1)) - 1 if hasattr(r, "overlap") else 0,
                         gpu_id=int(getattr(r, "gpu_id", 0)) if hasattr(r, "gpu_id") else 0,
-                        deadline_ms=int(getattr(r, "deadline_ms", 0)) if hasattr(r, "deadline_ms") else 0,
+                        deadline_ms=(
+                            int(getattr(r, "deadline_ms", 0)) if hasattr(r, "deadline_ms") else 0
+                        ),
                     )
 
                     def _done(_op: CopyOp, _r=r, _bytes=nbytes) -> None:
@@ -137,12 +147,12 @@ class NodeAgent:
 
     def prefetch_wave(
         self,
-        wave: Dict[str, Any],
+        wave: dict[str, Any],
         *,
         model_id: str,
         model_version: str,
-        on_ready: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        on_ready: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """Execute the I/O extents specified by a WaveSpec.
 
         This is a minimal, simulator-friendly path for correctness. It reads the
@@ -156,14 +166,18 @@ class NodeAgent:
             if end_pid < start_pid:
                 continue
             nbytes = (int(end_pid) - int(start_pid) + 1) * page_bytes
-            _ = self.backend.read_range(model_id, model_version, int(layer), int(start_pid), int(end_pid), page_bytes)
+            _ = self.backend.read_range(
+                model_id, model_version, int(layer), int(start_pid), int(end_pid), page_bytes
+            )
             total_bytes += nbytes
             if on_ready is not None:
-                on_ready({
-                    "layer": int(layer),
-                    "start_pid": int(start_pid),
-                    "end_pid": int(end_pid),
-                    "bytes": int(nbytes),
-                })
+                on_ready(
+                    {
+                        "layer": int(layer),
+                        "start_pid": int(start_pid),
+                        "end_pid": int(end_pid),
+                        "bytes": int(nbytes),
+                    }
+                )
         dt = (time.time() - t0) * 1000.0
         return {"ops": int(len(io_extents)), "bytes": int(total_bytes), "duration_ms": float(dt)}

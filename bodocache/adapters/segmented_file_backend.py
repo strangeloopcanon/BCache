@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Tuple
 
 
 class SegmentedFileBackend:
@@ -25,16 +24,33 @@ class SegmentedFileBackend:
         if not p.exists():
             p.touch()
 
-    def write_page(self, model_id: str, model_version: str, layer: int, page_id: int, page_bytes: int, data: bytes):
-        assert len(data) == page_bytes, "data length must equal page_bytes"
+    def write_page(
+        self,
+        model_id: str,
+        model_version: str,
+        layer: int,
+        page_id: int,
+        page_bytes: int,
+        data: bytes,
+    ):
+        if len(data) != page_bytes:
+            raise ValueError("data length must equal page_bytes")
         self.ensure_segment(model_id, model_version, layer)
         p = self._seg_path(model_id, model_version, layer)
-        with p.open('r+b') as f:
+        with p.open("r+b") as f:
             off = page_id * page_bytes
             f.seek(off)
             f.write(data)
 
-    def read_range(self, model_id: str, model_version: str, layer: int, start_pid: int, end_pid: int, page_bytes: int) -> bytes:
+    def read_range(
+        self,
+        model_id: str,
+        model_version: str,
+        layer: int,
+        start_pid: int,
+        end_pid: int,
+        page_bytes: int,
+    ) -> bytes:
         """Read a consecutive page range [start_pid, end_pid] inclusive as one coalesced IO.
 
         Raises IOError if the segment does not contain the full requested range.
@@ -44,16 +60,20 @@ class SegmentedFileBackend:
         self.ensure_segment(model_id, model_version, layer)
         p = self._seg_path(model_id, model_version, layer)
         size = (end_pid - start_pid + 1) * page_bytes
-        with p.open('rb') as f:
+        with p.open("rb") as f:
             off = start_pid * page_bytes
             f.seek(0, os.SEEK_END)
             seg_size = f.tell()
             if off + size > seg_size:
-                raise IOError(f"segment too small for read: need {off+size} bytes, have {seg_size} (layer={layer} start={start_pid} end={end_pid})")
+                raise OSError(
+                    "segment too small for read: "
+                    f"need {off+size} bytes, have {seg_size} "
+                    f"(layer={layer} start={start_pid} end={end_pid})"
+                )
             f.seek(off)
             buf = f.read(size)
             if len(buf) != size:
-                raise IOError(f"short read: expected {size} bytes, got {len(buf)}")
+                raise OSError(f"short read: expected {size} bytes, got {len(buf)}")
             return buf
 
     def read_range_into(
@@ -80,19 +100,19 @@ class SegmentedFileBackend:
             raise ValueError("out_buf must be writable")
         if mv.nbytes < size:
             raise ValueError(f"out_buf too small: need {size}, have {mv.nbytes}")
-        with p.open('rb') as f:
+        with p.open("rb") as f:
             off = start_pid * page_bytes
             f.seek(0, os.SEEK_END)
             seg_size = f.tell()
             if off + size > seg_size:
-                raise IOError(
+                raise OSError(
                     f"segment too small for read: need {off+size} bytes, have {seg_size} "
                     f"(layer={layer} start={start_pid} end={end_pid})"
                 )
             f.seek(off)
             # Use readinto for zero-copy into provided buffer
-            view = mv.cast('B')[:size]
+            view = mv.cast("B")[:size]
             n = f.readinto(view)
             if n != size:
-                raise IOError(f"short read: expected {size} bytes, got {n}")
+                raise OSError(f"short read: expected {size} bytes, got {n}")
             return n

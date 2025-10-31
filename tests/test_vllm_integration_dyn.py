@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, List
 
 from bodocache.adapters.segmented_file_backend import SegmentedFileBackend
 from bodocache.agent.node_agent import NodeAgent
@@ -43,11 +42,13 @@ def test_vllm_integration_prefetch(tmp_path):
     for pid in range(4):
         be.write_page("m", "v", 0, pid, page_bytes, b"x" * page_bytes)
     agent = NodeAgent(be, page_bytes=page_bytes)
-    adapter = VLLMBCacheAdapter(agent, node="n0", model_id="m", model_version="v", min_io_bytes=0, window_ms=20)
+    adapter = VLLMBCacheAdapter(
+        agent, node="n0", model_id="m", model_version="v", min_io_bytes=0, window_ms=20
+    )
 
     eng = DummyEngine()
 
-    def collector(state) -> Dict[int, List[int]]:
+    def collector(state) -> dict[int, list[int]]:
         return {0: [0, 1, 2, 3]}
 
     integ = VLLMIntegration(eng, adapter, collect_blocks=collector)
@@ -69,7 +70,7 @@ def test_vllm_integration_prefetch_context_parallel(tmp_path):
     eng.context_parallel_size = 2
     eng.context_parallel_rank = 1
 
-    def collector(state) -> Dict[int, List[int]]:
+    def collector(state) -> dict[int, list[int]]:
         return {0: [0, 1, 2, 3]}
 
     integ = VLLMIntegration(eng, adapter, collect_blocks=collector)

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, Protocol
+from typing import Any, Protocol
 
 
 @dataclass
@@ -28,7 +30,7 @@ class CopyOp:
 
 
 class AbstractCopyEngine(Protocol):
-    def submit(self, ops: List[CopyOp], callback: Callable[[CopyOp], None]) -> None:
+    def submit(self, ops: list[CopyOp], callback: Callable[[CopyOp], None]) -> None:
         """Submit a batch of copy ops and invoke callback as they complete."""
 
 
@@ -39,7 +41,7 @@ class SimCopyEngine:
     compiled backend. It immediately invokes the callback for each op.
     """
 
-    def submit(self, ops: List[CopyOp], callback: Callable[[CopyOp], None]) -> None:  # type: ignore[override]
+    def submit(self, ops: list[CopyOp], callback: Callable[[CopyOp], None]) -> None:  # type: ignore[override]
         # Micro-sleep to mimic async behavior without blocking too long.
         for op in ops:
             # 0.05ms per op for a tiny hint of asynchrony
@@ -51,7 +53,7 @@ class SimCopyEngine:
         return memoryview(bytearray(nbytes))
 
 
-def load_native_copy_engine() -> Optional[AbstractCopyEngine]:
+def load_native_copy_engine() -> AbstractCopyEngine | None:
     """Try loading a native (pybind11) copy engine if available.
 
     The expected module name can be standardized later. For now, we probe a
@@ -63,13 +65,11 @@ def load_native_copy_engine() -> Optional[AbstractCopyEngine]:
         "copy_engine_native",
     )
     for name in candidates:
-        try:  # pragma: no cover - import optional native module
+        with contextlib.suppress(Exception):  # pragma: no cover - optional module
             mod = __import__(name, fromlist=["CopyEngine"])  # type: ignore
             engine = getattr(mod, "CopyEngine", None)
             if engine is not None:
                 return engine()  # type: ignore[return-value]
-        except Exception:
-            continue
     return None
 
 

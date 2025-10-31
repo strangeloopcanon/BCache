@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Optional
 
 
 class SegmentedUringBackend:
@@ -16,8 +14,10 @@ class SegmentedUringBackend:
         self.root.mkdir(parents=True, exist_ok=True)
         try:
             import bodocache_agent_io_uring as uring  # type: ignore
-        except Exception as e:  # pragma: no cover - optional dependency
-            raise ImportError("bodocache_agent_io_uring module not found. Build with -DUSE_URING=ON")
+        except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+            raise ImportError(
+                "bodocache_agent_io_uring module not found. Build with -DUSE_URING=ON"
+            ) from exc
         self._uring = uring
 
     def _seg_path(self, model_id: str, model_version: str, layer: int) -> Path:
@@ -41,4 +41,3 @@ class SegmentedUringBackend:
         size = (end_pid - start_pid + 1) * page_bytes
         offset = start_pid * page_bytes
         return int(self._uring.read_range_into(str(p), int(offset), int(size), out_buf))
-

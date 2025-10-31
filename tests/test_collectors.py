@@ -34,4 +34,3 @@ def test_collectors_vllm():
     resolver = make_vllm_dest_resolver(kv)
     ptr = resolver({"layer": 0, "start_pid": 0, "end_pid": 2})
     assert isinstance(ptr, object)  # capsule-like
-
