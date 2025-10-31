@@ -40,7 +40,7 @@ def test_vllm_adapter_prefetch_sim(tmp_path):
     ready = []
     res = adapter.prefetch(reqs, now_ms=now_ms, on_ready=lambda info: ready.append(info))
     assert not res.plan_df.empty
-    assert res.exec_stats["bytes"] >= 4 * 4096
+    assert res.exec_stats.bytes >= 4 * 4096
     assert ready, "should receive on_ready callbacks in simulation"
     assert all("route_hint" in info for info in ready)
     assert res.plan_df["route_hint"].notna().all()
@@ -79,7 +79,7 @@ def test_node_agent_with_engine_path(tmp_path):
     res = adapter.prefetch(
         reqs, now_ms=now_ms, dest_resolver=lambda info: 0, on_ready=lambda info: ready.append(info)
     )
-    assert res.exec_stats["ops"] >= 1
+    assert res.exec_stats.ops >= 1
     assert ready, "on_ready should be called via engine path"
 
 
@@ -113,12 +113,12 @@ def test_vllm_adapter_context_parallel_shard(tmp_path):
     res0 = adapter.prefetch(
         [req], now_ms=now_ms, ctx_shard=ContextParallelSpec(world_size=2, rank=0)
     )
-    assert res0.exec_stats["bytes"] >= 2 * page_bytes
+    assert res0.exec_stats.bytes >= 2 * page_bytes
     # Rank 1 of 2 should own pages {1,3}
     res1 = adapter.prefetch(
         [req], now_ms=now_ms, ctx_shard=ContextParallelSpec(world_size=2, rank=1)
     )
-    assert res1.exec_stats["bytes"] >= 2 * page_bytes
+    assert res1.exec_stats.bytes >= 2 * page_bytes
 
 
 def test_vllm_adapter_prefetch_hints(tmp_path):
@@ -176,7 +176,7 @@ def test_vllm_adapter_prefetch_hints(tmp_path):
     )
     ready = []
     result = adapter.prefetch([live_req], now_ms=now_ms, on_ready=lambda info: ready.append(info))
-    assert result.exec_stats["bytes"] >= 4 * page_bytes
+    assert result.exec_stats.bytes >= 4 * page_bytes
     assert len(ready) >= 2
     assert result.plan_df["route_hint"].str.startswith("prefix:").any()
     assert any(info.get("route_hint") for info in ready)

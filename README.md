@@ -186,6 +186,9 @@ High-level callers should use the typed planner interface in
 and exposes a `plan_window(...)` helper. The vLLM and SGLang integrations, along
 with the simulator CLI, already demonstrate the recommended usage pattern.
 
+For a deeper walkthrough of the data flow between the planner and node agent,
+see [`docs/architecture.md`](docs/architecture.md).
+
 This will sweep through various parameter combinations and print the best-performing configurations, which it also saves to `configs/staged.yaml`.
 
 ### Testing

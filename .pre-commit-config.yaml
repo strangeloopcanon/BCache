@@ -13,7 +13,13 @@ repos:
     rev: v1.10.0
     hooks:
       - id: mypy
-        args: ["--config-file", "pyproject.toml", "bodocache/planner/api.py"]
+        args: [
+          "--config-file",
+          "pyproject.toml",
+          "bodocache/planner/api.py",
+          "bodocache/planner/pipeline.py",
+          "bodocache/planner/scheduler.py"
+        ]
         additional_dependencies:
           - types-PyYAML>=6.0.12
         pass_filenames: false

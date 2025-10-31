@@ -51,4 +51,4 @@ def test_sglang_integration_prefetch(tmp_path):
     now_ms = int(time.time() * 1000)
     res = integ.prefetch_step(state=None, prefix_id="sess", now_ms=now_ms)
     assert res is not None
-    assert res.exec_stats["bytes"] >= 4 * page_bytes
+    assert res.exec_stats.bytes >= 4 * page_bytes

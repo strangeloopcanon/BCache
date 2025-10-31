@@ -60,7 +60,7 @@ fixable = ["ALL"]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["bodocache/planner/api.py"]
+files = ["bodocache/planner/api.py", "bodocache/planner/pipeline.py", "bodocache/planner/scheduler.py"]
 warn_unused_ignores = true
 warn_redundant_casts = true
 warn_unused_configs = true

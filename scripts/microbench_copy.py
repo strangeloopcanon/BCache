@@ -72,7 +72,7 @@ def run_once(page_bytes: int, pages: int, streams: int):
         on_ready=lambda info: ready.append(info),
     )
     dt = (time.time() - t0) * 1000.0
-    return res.exec_stats.get("bytes", 0), dt, len(ready), dst is not None
+    return res.exec_stats.bytes, dt, len(ready), dst is not None
 
 
 def main():

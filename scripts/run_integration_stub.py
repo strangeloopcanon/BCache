@@ -139,7 +139,7 @@ def main():
         return
     metrics = res.metrics or {}
     planned_ops = len(res.plan_df)
-    total_bytes = res.exec_stats.get("bytes", 0)
+    total_bytes = res.exec_stats.bytes
     on_time_ratio = metrics.get("on_time_ratio")
     print("planned_ops=" f"{planned_ops} bytes={total_bytes} on_time_ratio={on_time_ratio}\n")
 

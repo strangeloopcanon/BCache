@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from bodocache.agent.node_agent import NodeAgent
+from bodocache.agent.node_agent import NodeAgent, NodeExecStats
 from bodocache.planner.api import PlannerConfig, plan_window
 from bodocache.telemetry.trace import PrefetchEvent, TraceRecorder
 
@@ -23,7 +23,7 @@ class PrefetchResult:
     plan_df: pd.DataFrame
     evict_df: pd.DataFrame
     admission_df: pd.DataFrame
-    exec_stats: dict[str, Any]
+    exec_stats: NodeExecStats
     metrics: dict[str, Any] | None = None
 
 

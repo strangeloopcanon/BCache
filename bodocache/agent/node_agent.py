@@ -2,13 +2,26 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Dict
 
 import pandas as pd
 
 from bodocache.adapters.segmented_file_backend import SegmentedFileBackend
 
 from .copy_engine import AbstractCopyEngine, CopyOp, get_copy_engine
+
+
+@dataclass
+class NodeExecStats:
+    """Structured execution statistics for node agent runs."""
+
+    ops: int
+    bytes: int
+    duration_ms: float
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"ops": self.ops, "bytes": self.bytes, "duration_ms": self.duration_ms}
 
 
 class NodeAgent:
@@ -36,9 +49,9 @@ class NodeAgent:
         on_ready: Callable[[dict[str, Any]], None] | None = None,
         dest_resolver: Callable[[dict[str, Any]], Any] | None = None,
         prefer_native_engine: bool = True,
-    ) -> dict[str, Any]:
+    ) -> NodeExecStats:
         if plan_df.empty:
-            return {"ops": 0, "bytes": 0, "duration_ms": 0.0}
+            return NodeExecStats(ops=0, bytes=0, duration_ms=0.0)
         t0 = time.time()
         total_bytes = 0
         for r in plan_df.itertuples(index=False):
@@ -143,7 +156,7 @@ class NodeAgent:
                     }
                 )
         dt = (time.time() - t0) * 1000.0
-        return {"ops": int(len(plan_df)), "bytes": int(total_bytes), "duration_ms": float(dt)}
+        return NodeExecStats(ops=int(len(plan_df)), bytes=int(total_bytes), duration_ms=float(dt))
 
     def prefetch_wave(
         self,
@@ -152,7 +165,7 @@ class NodeAgent:
         model_id: str,
         model_version: str,
         on_ready: Callable[[dict[str, Any]], None] | None = None,
-    ) -> dict[str, Any]:
+    ) -> NodeExecStats:
         """Execute the I/O extents specified by a WaveSpec.
 
         This is a minimal, simulator-friendly path for correctness. It reads the
@@ -180,4 +193,6 @@ class NodeAgent:
                     }
                 )
         dt = (time.time() - t0) * 1000.0
-        return {"ops": int(len(io_extents)), "bytes": int(total_bytes), "duration_ms": float(dt)}
+        return NodeExecStats(
+            ops=int(len(io_extents)), bytes=int(total_bytes), duration_ms=float(dt)
+        )

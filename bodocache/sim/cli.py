@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import secrets
 import time
+from pathlib import Path
 
 from bodocache.adapters.segmented_file_backend import SegmentedFileBackend
 from bodocache.agent.node_agent import NodeAgent
@@ -51,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--disable-overlap", dest="enable_overlap", action="store_false")
     ap.add_argument("--enforce-tier-caps", dest="enforce_tier_caps", action="store_true")
     ap.add_argument("--no-enforce-tier-caps", dest="enforce_tier_caps", action="store_false")
+    ap.add_argument("--metrics-json", type=str, help="Write run summary JSON to this path")
     ap.set_defaults(
         enable_prefix_fanout=None,
         enable_tenant_credits=None,
@@ -265,14 +268,29 @@ def main():
             )
     agent = NodeAgent(be)
     stats = agent.execute(plan_df, model_id="m70b", model_version="v1")
-    total_mb = stats["bytes"] / 1024 / 1024
+    total_mb = stats.bytes / 1024 / 1024
     print(
         "  node_agent_exec: "
-        f"ops={stats['ops']} bytes={total_mb:.2f}MB duration_ms={stats['duration_ms']:.1f}"
+        f"ops={stats.ops} bytes={total_mb:.2f}MB duration_ms={stats.duration_ms:.1f}"
     )
     TelemetryLogger().log_window(
         req, heat, tiers, lats, plan_df, exec_df, evict_df=evict_df, admission_df=admission_df
     )
+
+    if args.metrics_json:
+        metrics_path = Path(args.metrics_json)
+        metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        summary = {
+            "timestamp_ms": int(time.time() * 1000),
+            "plan": {
+                "ops": total_ops,
+                "total_bytes": total_bytes,
+                "avg_io_bytes": avg_io,
+            },
+            "execution": stats.as_dict(),
+            "streams": m,
+        }
+        metrics_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

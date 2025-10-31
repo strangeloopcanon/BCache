@@ -49,5 +49,5 @@ def test_node_agent_exec(tmp_path):
         ],
     )
     stats = agent.execute(plan_df, model_id="m", model_version="v")
-    assert stats["ops"] == 2
-    assert stats["bytes"] == 4 * 4096  # two ranges of two pages each
+    assert stats.ops == 2
+    assert stats.bytes == 4 * 4096  # two ranges of two pages each
