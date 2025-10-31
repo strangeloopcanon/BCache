@@ -38,6 +38,8 @@ idea.md
 logs/
 segments/
 telemetry/
+!bodocache/telemetry/
+!bodocache/telemetry/**
 
 # Generated configs
 configs/staged.yaml
