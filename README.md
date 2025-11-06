@@ -1,4 +1,5 @@
 # BCache: A Bodo-Powered Hierarchical KV Cache Planner
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/strangeloopcanon/BCache)
 
 ## Motivation
 
