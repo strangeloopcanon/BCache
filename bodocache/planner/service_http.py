@@ -72,8 +72,15 @@ def plan_from_payload(payload: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFra
             page_bytes=int(row["page_bytes"]),
             tenant=str(row["tenant"]),
             est_fill_ms=float(row["est_fill_ms"]),
-            prefix_tokens=list(row.get("prefix_tokens", []) or []),
-            pcluster=int(row.get("pcluster", -1)),
+            # Missing prefix_tokens arrives as NaN (float), not as the default;
+            # only accept real sequences.
+            prefix_tokens=(
+                list(row["prefix_tokens"])
+                if isinstance(row.get("prefix_tokens"), (list, tuple))
+                else []
+            ),
+            # Missing pcluster arrives as NaN; PlannerRequest treats -1 as "unassigned".
+            pcluster=(int(row["pcluster"]) if not pd.isna(row.get("pcluster")) else -1),
         )
         for row in req.to_dict(orient="records")
     ]
@@ -126,6 +133,7 @@ def plan_from_payload(payload: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFra
         enable_admission=bool(knobs.get("enable_admission", True)),
         enable_eviction=bool(knobs.get("enable_eviction", True)),
         enforce_tier_caps=bool(knobs.get("enforce_tier_caps", True)),
+        admission_reuse_threshold=float(knobs.get("admission_reuse_threshold", 10.0)),
     )
     result = plan_window(window, config)
     return result.as_dataframes()

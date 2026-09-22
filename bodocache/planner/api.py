@@ -93,6 +93,11 @@ class PlannerConfig(BaseModel):
     enable_admission: bool = True
     enable_eviction: bool = True
     enforce_tier_caps: bool = True
+    admission_reuse_threshold: float = Field(
+        default=10.0,
+        ge=0.0,
+        description="Minimum decay_hits for a page to be admitted (persisted to storage).",
+    )
 
 
 class PlannerWindow(BaseModel):
@@ -235,6 +240,11 @@ class PlanOp(BaseModel):
     fanout: int | None = None
     overlap: int | None = None
     priority: float | None = None
+    pop: float | None = Field(
+        default=None,
+        description="Max popularity score (alpha*decay_hits + beta*tenant_weight) "
+        "among the op's member requests; lets executors make heat-aware decisions.",
+    )
     start_pid: int | None = None
     end_pid: int | None = None
     page_bytes: int | None = None
@@ -243,6 +253,10 @@ class PlanOp(BaseModel):
 class EvictionEntry(BaseModel):
     layer: int
     page_id: int
+    decay_hits: int | None = Field(
+        default=None,
+        description="Heat at eviction time; colder pages sort first.",
+    )
 
 
 class AdmissionEntry(BaseModel):
@@ -255,7 +269,6 @@ class PlannerResult(BaseModel):
     plan: list[PlanOp] = Field(default_factory=list)
     evictions: list[EvictionEntry] = Field(default_factory=list)
     admissions: list[AdmissionEntry] = Field(default_factory=list)
-
     @classmethod
     def from_dataframes(
         cls,
@@ -306,5 +319,6 @@ def plan_window(window: PlannerWindow, config: PlannerConfig | None = None) -> P
         enable_admission=cfg.enable_admission,
         enable_eviction=cfg.enable_eviction,
         enforce_tier_caps=cfg.enforce_tier_caps,
+        admission_reuse_threshold=cfg.admission_reuse_threshold,
     )
     return PlannerResult.from_dataframes(plan_df, evict_df, admission_df)

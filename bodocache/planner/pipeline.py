@@ -83,37 +83,39 @@ def coalesce_intervals(
     eff_start = np.maximum(c["page_start"].astype(np.int64), (prev_cummax_end + 1).astype(np.int64))
     pages = np.maximum(0, c["page_end"].astype(np.int64) - eff_start + 1)
     c["_pages"] = pages
-    runs = (
-        c.groupby(run_grp)
-        .agg(
-            pages=("_pages", "sum"),
-            page_bytes=("page_bytes", "max"),
-            deadline_ms=("deadline_ms", "min"),
-            fanout=("page_start", "count"),
-            urgency_min=("urgency", "min"),
-            start_pid=("page_start", "min"),
-            end_pid=("page_end", "max"),
-        )
-        .reset_index()
-    )
+    agg_spec: dict = {
+        "pages": ("_pages", "sum"),
+        "page_bytes": ("page_bytes", "max"),
+        "deadline_ms": ("deadline_ms", "min"),
+        "fanout": ("page_start", "count"),
+        "urgency_min": ("urgency", "min"),
+        "start_pid": ("page_start", "min"),
+        "end_pid": ("page_end", "max"),
+    }
+    if "pop" in c.columns:
+        # Max member popularity per coalesced op; surfaced as PlanOp.pop so
+        # downstream executors can make heat-aware decisions.
+        agg_spec["pop_max"] = ("pop", "max")
+    runs = c.groupby(run_grp).agg(**agg_spec).reset_index()
     runs["bytes"] = runs["pages"].astype(np.int64) * runs["page_bytes"].astype(np.int64)
-    plan = runs[runs["bytes"] >= int(min_io_bytes)][
-        [
-            "node",
-            "tier_src",
-            "tier_dst",
-            "pcluster",
-            "layer",
-            "run_id",
-            "bytes",
-            "deadline_ms",
-            "fanout",
-            "urgency_min",
-            "start_pid",
-            "end_pid",
-            "page_bytes",
-        ]
+    keep_cols = [
+        "node",
+        "tier_src",
+        "tier_dst",
+        "pcluster",
+        "layer",
+        "run_id",
+        "bytes",
+        "deadline_ms",
+        "fanout",
+        "urgency_min",
+        "start_pid",
+        "end_pid",
+        "page_bytes",
     ]
+    if "pop_max" in runs.columns:
+        keep_cols.insert(keep_cols.index("start_pid"), "pop_max")
+    plan = runs[runs["bytes"] >= int(min_io_bytes)][keep_cols]
     return plan.reset_index(drop=True)
 
 
@@ -163,22 +165,23 @@ def apply_caps(
     gt2 = (plan["est_copy_ms"] > (2.0 * plan["lat_ms"]).astype(float)).astype(np.int64)
     plan["overlap"] = np.minimum(np.int64(3), np.int64(1) + gt1 + gt2)
     plan["priority"] = plan["urgency_min"]
-    plan = plan[
-        [
-            "node",
-            "tier_src",
-            "tier_dst",
-            "pcluster",
-            "layer",
-            "run_id",
-            "bytes",
-            "deadline_ms",
-            "fanout",
-            "overlap",
-            "priority",
-            "start_pid",
-            "end_pid",
-            "page_bytes",
-        ]
+    keep_cols = [
+        "node",
+        "tier_src",
+        "tier_dst",
+        "pcluster",
+        "layer",
+        "run_id",
+        "bytes",
+        "deadline_ms",
+        "fanout",
+        "overlap",
+        "priority",
+        "start_pid",
+        "end_pid",
+        "page_bytes",
     ]
+    if "pop_max" in plan.columns:
+        keep_cols.insert(keep_cols.index("start_pid"), "pop_max")
+    plan = plan[keep_cols]
     return plan.reset_index(drop=True)

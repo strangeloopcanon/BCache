@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
+
+
+def _stable_hash(x: str, i: int, seed: int) -> int:
+    """Deterministic 31-bit hash for sketch indexing.
+
+    NOTE: this previously used Python's salted builtin ``hash()``, which made
+    identical workloads produce different heat estimates in every process.
+    blake2b keeps estimates reproducible across runs and machines.
+    """
+    digest = hashlib.blake2b(f"{seed}|{i}|{x}".encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "little") & 0x7FFFFFFF
 
 
 @dataclass
@@ -16,8 +28,7 @@ class CountMinSketch:
         self.table = [[0] * self.width for _ in range(self.depth)]
 
     def _hash(self, x: str, i: int) -> int:
-        # Simple mixed hash; for production switch to a better family
-        return (hash((x, i, self.seed)) & 0x7FFFFFFF) % self.width
+        return _stable_hash(x, i, self.seed) % self.width
 
     def add(self, x: str, c: int = 1):
         for i in range(self.depth):
@@ -59,9 +70,14 @@ class HeatSketch:
     """
 
     def __init__(
-        self, width: int = 4096, depth: int = 4, k: int = 4096, decay_lambda: float = 0.01
+        self,
+        width: int = 4096,
+        depth: int = 4,
+        k: int = 4096,
+        decay_lambda: float = 0.01,
+        seed: int = 1337,
     ):
-        self.cms = CountMinSketch(width, depth)
+        self.cms = CountMinSketch(width, depth, seed=seed)
         self.ss = SpaceSaving(k)
         self.decay_lambda = decay_lambda
         self._last_decay_ts = time.time()
