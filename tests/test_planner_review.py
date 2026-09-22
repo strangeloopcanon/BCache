@@ -3,6 +3,7 @@
 - heat signals on PlanOp.pop / EvictionEntry.decay_hits
 - run_window no longer mutates caller inputs
 """
+
 from __future__ import annotations
 
 import time
@@ -70,9 +71,7 @@ def test_admission_reuse_threshold_is_configurable():
     _, _, admission_df = result.as_dataframes()
     assert admission_df.empty
     # Lowered threshold admits it (persist to storage tier 0).
-    result = plan_window(
-        window, PlannerConfig(pmin=0.0, umin=-1.0, admission_reuse_threshold=5.0)
-    )
+    result = plan_window(window, PlannerConfig(pmin=0.0, umin=-1.0, admission_reuse_threshold=5.0))
     _, _, admission_df = result.as_dataframes()
     assert len(admission_df) == 1
     assert admission_df["tier_dst"].iloc[0] == 0
@@ -95,9 +94,7 @@ def test_eviction_entry_carries_decay_hits():
         TierCapacity(tier=1, bandwidth_caps=1 << 40, free_bytes=1),
         TierCapacity(tier=2, bandwidth_caps=1 << 40, free_bytes=1 << 60),
     ]
-    result = plan_window(
-        window, PlannerConfig(pmin=0.0, umin=-1.0, enforce_tier_caps=False)
-    )
+    result = plan_window(window, PlannerConfig(pmin=0.0, umin=-1.0, enforce_tier_caps=False))
     assert len(result.evictions) >= 1
     for entry in result.evictions:
         assert entry.decay_hits == 10
@@ -135,9 +132,7 @@ def test_heat_signal_columns_present_in_dataframes():
 def test_empty_plan_still_exposes_pop_column():
     # No request passes the filters -> empty plan, but the schema stays stable.
     window = _window(decay_hits=0)
-    result = plan_window(
-        window, PlannerConfig(pmin=100.0, umin=10**9, min_io_bytes=10**12)
-    )
+    result = plan_window(window, PlannerConfig(pmin=100.0, umin=10**9, min_io_bytes=10**12))
     plan_df, _, _ = result.as_dataframes()
     assert plan_df.empty
 

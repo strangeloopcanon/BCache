@@ -269,6 +269,7 @@ class PlannerResult(BaseModel):
     plan: list[PlanOp] = Field(default_factory=list)
     evictions: list[EvictionEntry] = Field(default_factory=list)
     admissions: list[AdmissionEntry] = Field(default_factory=list)
+
     @classmethod
     def from_dataframes(
         cls,
