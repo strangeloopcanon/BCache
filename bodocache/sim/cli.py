@@ -21,6 +21,7 @@ from bodocache.planner.api import (
     plan_window,
 )
 from bodocache.planner.cluster import assign_pclusters_minhash
+from bodocache.planner.models import DEFAULT_PAGE_BYTES
 from bodocache.planner.waves import build_wave_specs
 from bodocache.sim.utils import (
     synthetic_heat,
@@ -138,7 +139,9 @@ def main():
             page_id=int(row["page_id"]),
             decay_hits=int(row["decay_hits"]),
             tenant_weight=float(row["tenant_weight"]),
-            size_bytes=int(row["size_bytes"]),
+            # synthetic_heat() does not emit per-page sizes; fall back to the
+            # planner default instead of KeyError-ing on the missing column.
+            size_bytes=int(row.get("size_bytes", DEFAULT_PAGE_BYTES)),
         )
         for row in heat.to_dict(orient="records")
     ]

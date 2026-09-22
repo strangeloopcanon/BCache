@@ -73,6 +73,7 @@ This transforms caching from a reactive "store what was used" to a proactive "pr
 *   **Readable Planner Pipeline:** The core planning logic is broken into a clear, four-stage pipeline for better readability and maintenance.
 *   **I/O Coalescing:** The planner identifies and merges contiguous page requests into large, efficient I/O operations.
 *   **Popularity and Urgency Scoring:** The planner uses a scoring system to prioritize requests based on their importance and deadline.
+*   **Heat Signals in Plan Output:** Every planned op carries its `pop` (max member popularity) and every eviction its `decay_hits`, so data-plane executors (vLLM/SGLang adapters) can make heat-aware decisions downstream. The admission reuse threshold is configurable via `PlannerConfig.admission_reuse_threshold`.
 *   **Advanced Prefix Clustering:** Uses MinHash LSH to group requests with semantically similar prefixes, enabling more efficient I/O coalescing.
 *   **Tenant-based Credit System:** Allocates resources based on tenant-specific policies.
 *   **Automated Policy Tuner:** Includes a `replay_tuner.py` script to automatically sweep through policy parameters and find the optimal configuration for a given workload.

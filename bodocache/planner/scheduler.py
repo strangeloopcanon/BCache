@@ -131,6 +131,7 @@ def run_window_core(
             deadline_ms=("deadline_ms", "min"),
             fanout=("page_start", "count"),
             urgency_min=("urgency", "min"),
+            pop_max=("pop", "max"),
             start_pid=("page_start", "min"),
             end_pid=("page_end", "max"),
         )
@@ -149,6 +150,7 @@ def run_window_core(
             "deadline_ms",
             "fanout",
             "urgency_min",
+            "pop_max",
             "start_pid",
             "end_pid",
             "page_bytes",
@@ -207,6 +209,7 @@ def run_window_core(
             "fanout",
             "overlap",
             "priority",
+            "pop_max",
             "start_pid",
             "end_pid",
             "page_bytes",
@@ -243,6 +246,8 @@ def run_window_core_py(
         max_ops_per_tier=max_ops_per_tier,
         enforce_tier_caps=bool(enforce_tier_caps),
     )
+    if "pop_max" in plan.columns:
+        plan = plan.rename(columns={"pop_max": "pop"})
     return plan
 
 
@@ -263,11 +268,15 @@ def run_window(
     enable_admission: bool | np.bool_ = True,
     enable_eviction: bool | np.bool_ = True,
     enforce_tier_caps: bool | np.bool_ = True,
+    admission_reuse_threshold: float = 10.0,
 ):
+    # Work on copies: the JIT cores annotate frames in place, and callers
+    # must not observe surprise columns on their inputs.
+    requests_df = requests_df.copy()
+    heat_df = heat_df.copy()
     # Ensure numeric prefix clusters for JIT-friendly fan-out grouping
     if "pcluster" not in requests_df.columns:
         codes, _ = pd.factorize(requests_df["prefix_id"], sort=False)
-        requests_df = requests_df.copy()
         requests_df["pcluster"] = codes.astype(np.int64)
 
     FORCE_PY = str(os.environ.get("BODOCACHE_PURE_PY", "")).lower() in ("1", "true", "yes")
@@ -328,6 +337,8 @@ def run_window(
     heat2 = heat_df.copy()
     if "size_bytes" not in heat2.columns:
         heat2["size_bytes"] = np.int64(256 * 1024)
+    if "decay_hits" not in heat2.columns:
+        heat2["decay_hits"] = np.int64(0)
     if bool(enable_eviction):
         if FORCE_PY:
             evict = eviction_core_py(plan_df, heat2, tier_caps_df)
@@ -337,17 +348,27 @@ def run_window(
             except Exception:
                 evict = eviction_core_py(plan_df, heat2, tier_caps_df)
     else:
-        evict = heat2[["layer", "page_id"]].head(0)
+        evict = heat2[["layer", "page_id", "decay_hits"]].head(0)
     if bool(enable_admission):
         if FORCE_PY:
-            admission = admission_core_py(requests_df, heat_df, reuse_threshold=10.0)
+            admission = admission_core_py(
+                requests_df, heat_df, reuse_threshold=admission_reuse_threshold
+            )
         else:
             try:
-                admission = admission_core(requests_df, heat_df, reuse_threshold=10.0)
+                admission = admission_core(
+                    requests_df, heat_df, reuse_threshold=admission_reuse_threshold
+                )
             except Exception:
-                admission = admission_core_py(requests_df, heat_df, reuse_threshold=10.0)
+                admission = admission_core_py(
+                    requests_df, heat_df, reuse_threshold=admission_reuse_threshold
+                )
     else:
         admission = heat_df[["layer", "page_id"]].head(0)
+    # Normalize heat-signal column names for the public API: the cores emit
+    # pop_max (max member popularity per coalesced op); the API calls it pop.
+    if "pop_max" in plan_df.columns:
+        plan_df = plan_df.rename(columns={"pop_max": "pop"})
     return plan_df, evict, admission
 
 
@@ -412,10 +433,12 @@ def eviction_core(
 
     # Choose coldest pages cluster-wide (no per-tier mapping in heat; approximate)
     df = heat_df.copy()
-    df = df.sort_values("decay_hits", ascending=True)[["layer", "page_id", "size_bytes"]]
+    df = df.sort_values("decay_hits", ascending=True)[
+        ["layer", "page_id", "decay_hits", "size_bytes"]
+    ]
     df["cum"] = df["size_bytes"].cumsum()
     target = need["deficit"].sum()
-    ev = df[df["cum"] <= target][["layer", "page_id"]]
+    ev = df[df["cum"] <= target][["layer", "page_id", "decay_hits"]]
     return ev.reset_index(drop=True)
 
 
@@ -434,8 +457,10 @@ def eviction_core_py(
     if len(need) == 0:
         return heat_df[["layer", "page_id"]].head(0)
     df = heat_df.copy()
-    df = df.sort_values("decay_hits", ascending=True)[["layer", "page_id", "size_bytes"]]
+    df = df.sort_values("decay_hits", ascending=True)[
+        ["layer", "page_id", "decay_hits", "size_bytes"]
+    ]
     df["cum"] = df["size_bytes"].cumsum()
     target = need["deficit"].sum()
-    ev = df[df["cum"] <= target][["layer", "page_id"]]
+    ev = df[df["cum"] <= target][["layer", "page_id", "decay_hits"]]
     return ev.reset_index(drop=True)
