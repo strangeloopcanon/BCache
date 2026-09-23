@@ -1,3 +1,0 @@
-[console_scripts]
-bcache-sim = bodocache.sim.cli:main
-bodocache-sim = bodocache.sim.cli:main

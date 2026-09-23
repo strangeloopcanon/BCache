@@ -11,7 +11,7 @@ try:  # pragma: no cover - trivial import/fallback
 except Exception:  # Bodo not available; define a minimal shim with a no-op jit decorator
 
     class _NoBodo:  # pragma: no cover - simple decorator shim
-        def jit(self, func=None, **kwargs):
+        def jit(self, func=None, **_kwargs):
             if func is None:
 
                 def wrapper(f):
