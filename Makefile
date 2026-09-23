@@ -22,7 +22,7 @@ ensure-venv:
 
 setup bootstrap: ensure-venv
 	@set -euo pipefail; \
-	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install --upgrade pip setuptools
 	@set -euo pipefail; \
 	if $(PIP) install -e .[dev]; then \
 		echo "Installed project with dev extras"; \
